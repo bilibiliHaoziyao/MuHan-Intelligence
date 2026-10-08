@@ -65,6 +65,18 @@
 
 前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.1.0-dev-release.apk` 直接安装。
 
+| 文件 | 大小 | 说明 |
+| --- | --- | --- |
+| `MuHan-Intelligence-0.1.0-dev-release.apk` | 约 2.3 MB | 混淆压缩后的发布版 |
+| `MuHan-Intelligence-0.1.0-dev-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
+| `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
+
+核对下载完整性：
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
 > Release APK 使用仓库内公开的签名证书签名，仅供个人测试分发，请勿用于正式上架。
 
 > 首次使用需要自备 API Key。没有的话推荐注册 [DeepSeek 开放平台](https://platform.deepseek.com/)，注册即送额度且价格低廉；也可以选择 Ollama 在本地跑模型。
@@ -117,12 +129,26 @@ cd MuHan-Intelligence
 两者都不存在时，Release 变体会回退到 debug 签名，保证本地仍能构建出可安装的包。
 
 ```properties
-# keystore.properties
-storeFile=keystore/muhan-release.jks
+# keystore.properties（仓库根目录）
+storeFile=../keystore/muhan-release.jks
 storePassword=你的口令
 keyAlias=muhan
 keyPassword=你的口令
 ```
+
+> **关于 `storeFile` 的路径基准**
+>
+> `storeFile` 是相对 `:app` 模块目录解析的，而不是仓库根目录。所以位于仓库根
+> 的密钥库要写成 `../keystore/muhan-release.jks`。
+> 写成 `keystore/muhan-release.jks` 也能正常工作——构建脚本会先按模块相对解析，
+> 找不到时再按仓库根相对解析，两种风格都支持。
+
+签名证书指纹（用于核对 APK 是否由本仓库构建）：
+
+| 算法 | 指纹 |
+| --- | --- |
+| SHA-256 | `46:29:08:F0:00:C0:E7:EE:08:A0:A7:9B:54:B7:BA:3A:F4:69:82:F4:D4:1E:F0:B6:4B:3F:81:03:EE:BF:E6:2A` |
+| SHA-1 | `0A:23:CF:9F:62:91:A3:C2:8C:4F:B0:CB:A4:42:8C:F1:49:68:16:BE` |
 
 > ### ⚠️ 关于密钥库
 >
@@ -137,6 +163,10 @@ keyPassword=你的口令
 - 推送到 `main` / `master` 分支 → 构建并上传 Artifact
 - 打 `v*` 标签 → 构建并**自动创建 GitHub Release**，附带 APK 与 SHA256 校验值
 - 手动触发 → 可选是否创建 Release
+
+完整流程：准备签名 → **校验签名配置可解析** → 单元测试 → 构建 Release/Debug APK
+→ `apksigner verify` 校验签名 → 整理产物并生成 `SHA256SUMS.txt` → 上传 Artifact
+→ 打标签时创建 Release。
 
 工作流优先使用 Secrets 中的密钥库；若未配置，则回退到仓库内的 `keystore/muhan-release.jks`。要切换到 Secrets 方案，请配置：
 
