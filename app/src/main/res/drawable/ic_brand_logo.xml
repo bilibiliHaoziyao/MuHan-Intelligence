@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome-tintable brand glyph used in-app (scales with tint). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,3 C16.97,3 21,6.58 21,11 C21,15.42 16.97,19 12,19 C10.62,19 9.32,18.74 8.15,18.27 L4.6,19.9 C4.06,20.15 3.5,19.72 3.5,19.13 L3.5,14.6 C2.86,13.5 2.5,12.29 2.5,11 C2.5,6.58 7.03,3 12,3 Z" />
+</vector>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MuHan Intelligence brand mark: a rounded chat bubble with an aperture/star core,
+  drawn entirely as vector so it stays crisp at any launcher size.
+  Adaptive-icon foreground safe zone: content kept within the inner 66dp of 108dp.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Chat bubble body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28 C68.36,28 80,38.75 80,52 C80,65.25 68.36,76 54,76 C50.4,76 46.98,75.32 43.87,74.08 L34.5,78.5 C33.35,79.05 32,78.21 32,76.93 L32,65.2 C28.06,61.78 26,56.9 26,52 C26,38.75 39.64,28 54,28 Z" />
+
+    <!-- Aperture core -->
+    <path
+        android:fillColor="#FF6D5BF6"
+        android:pathData="M54,42 L58.2,50.2 L67,52 L60.5,58.35 L62.1,67.1 L54,62.8 L45.9,67.1 L47.5,58.35 L41,52 L49.8,50.2 Z" />
+</vector>

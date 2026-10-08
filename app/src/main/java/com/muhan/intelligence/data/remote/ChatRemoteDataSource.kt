@@ -1,0 +1,239 @@
+package com.muhan.intelligence.data.remote
+
+import com.muhan.intelligence.domain.model.ApiFlavor
+import com.muhan.intelligence.domain.model.ConnectionTestResult
+import com.muhan.intelligence.domain.model.ProviderConfig
+import com.muhan.intelligence.domain.model.Role
+import com.muhan.intelligence.domain.model.StreamEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Single entry point for talking to a user-configured LLM provider.
+ *
+ * A dedicated [OkHttpClient] is used (rather than a shared DI singleton) because
+ * streaming completions need a read timeout measured in minutes while the
+ * connection handshake should still fail fast.
+ */
+@Singleton
+class ChatRemoteDataSource @Inject constructor() {
+
+    private val jsonMedia = "application/json; charset=utf-8".toMediaType()
+
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    /**
+     * Streams a completion. The returned flow is cold: collection starts the
+     * request and cancelling it tears the underlying call down immediately, which
+     * is what powers the "stop generating" button.
+     */
+    fun streamChat(
+        provider: ProviderConfig,
+        apiKey: String,
+        messages: List<Pair<Role, String>>,
+        systemPrompt: String,
+        temperature: Float,
+        topP: Float,
+        maxTokens: Int,
+    ): Flow<StreamEvent> = callbackFlow {
+        val request = buildRequest(
+            provider = provider,
+            apiKey = apiKey,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            temperature = temperature,
+            topP = topP,
+            maxTokens = maxTokens,
+            stream = true,
+        )
+
+        val call = client.newCall(request)
+        val parser = SseStreamParser(provider.flavor)
+        var finished = false
+
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (!finished) {
+                    finished = true
+                    trySend(StreamEvent.Failed(ApiErrorMapper.describe(e)))
+                }
+                close()
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { res ->
+                    if (!res.isSuccessful) {
+                        val body = runCatching { res.body?.string() }.getOrNull()
+                        trySend(
+                            StreamEvent.Failed(
+                                ApiErrorMapper.describe(
+                                    IOException("HTTP ${res.code}"),
+                                    httpCode = res.code,
+                                    rawBody = body,
+                                ),
+                            ),
+                        )
+                        close()
+                        return
+                    }
+
+                    val source = res.body?.source()
+                    if (source == null) {
+                        trySend(StreamEvent.Failed("服务商返回了空响应。"))
+                        close()
+                        return
+                    }
+
+                    try {
+                        while (!source.exhausted()) {
+                            val line = source.readUtf8Line() ?: break
+                            val events = parser.feed(line + "\n")
+                            for (event in events) {
+                                if (event is StreamEvent.Completed) {
+                                    if (!finished) {
+                                        finished = true
+                                        trySend(event)
+                                    }
+                                } else {
+                                    trySend(event)
+                                }
+                            }
+                            if (parser.completed) break
+                        }
+                        parser.flush().forEach { event ->
+                            if (event is StreamEvent.Completed) {
+                                if (!finished) {
+                                    finished = true
+                                    trySend(event)
+                                }
+                            } else {
+                                trySend(event)
+                            }
+                        }
+                        if (!finished) {
+                            finished = true
+                            trySend(StreamEvent.Completed)
+                        }
+                    } catch (e: IOException) {
+                        if (!finished) {
+                            finished = true
+                            // A truncated stream usually still delivered usable text;
+                            // surface it as completion instead of a hard failure.
+                            trySend(StreamEvent.Completed)
+                        }
+                    } finally {
+                        close()
+                    }
+                }
+            }
+        })
+
+        awaitClose { call.cancel() }
+    }.flowOn(Dispatchers.IO)
+
+    /** One-shot connectivity probe used during onboarding and in settings. */
+    suspend fun testConnection(
+        provider: ProviderConfig,
+        apiKey: String,
+    ): ConnectionTestResult = withContext(Dispatchers.IO) {
+        val started = System.currentTimeMillis()
+        val request = buildRequest(
+            provider = provider,
+            apiKey = apiKey,
+            messages = listOf(Role.USER to "ping"),
+            systemPrompt = "",
+            temperature = 0f,
+            topP = 1f,
+            maxTokens = 8,
+            stream = false,
+        )
+
+        try {
+            client.newCall(request).execute().use { res ->
+                val body = runCatching { res.body?.string() }.getOrNull().orEmpty()
+                if (res.isSuccessful) {
+                    ConnectionTestResult.Success(
+                        latencyMs = System.currentTimeMillis() - started,
+                        modelEcho = RequestBodyFactory.extractModelEcho(body),
+                    )
+                } else {
+                    ConnectionTestResult.Failure(
+                        message = ApiErrorMapper.describe(
+                            IOException("HTTP ${res.code}"),
+                            httpCode = res.code,
+                            rawBody = body,
+                        ),
+                        httpCode = res.code,
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            ConnectionTestResult.Failure(ApiErrorMapper.describe(e))
+        }
+    }
+
+    private fun buildRequest(
+        provider: ProviderConfig,
+        apiKey: String,
+        messages: List<Pair<Role, String>>,
+        systemPrompt: String,
+        temperature: Float,
+        topP: Float,
+        maxTokens: Int,
+        stream: Boolean,
+    ): Request {
+        val url = EndpointResolver.resolve(provider, stream)
+        val payload = RequestBodyFactory.build(
+            flavor = provider.flavor,
+            model = provider.modelName,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            temperature = temperature,
+            topP = topP,
+            maxTokens = maxTokens,
+            stream = stream,
+        )
+
+        return Request.Builder()
+            .url(url)
+            .post(payload.toRequestBody(jsonMedia))
+            .header("Content-Type", "application/json")
+            .header("Accept", if (stream) "text/event-stream" else "application/json")
+            .apply {
+                when (provider.flavor) {
+                    ApiFlavor.OPENAI -> header("Authorization", "Bearer $apiKey")
+                    ApiFlavor.ANTHROPIC -> {
+                        header("x-api-key", apiKey)
+                        header("anthropic-version", "2023-06-01")
+                    }
+                    ApiFlavor.GEMINI -> header("x-goog-api-key", apiKey)
+                }
+            }
+            .build()
+    }
+
+    private companion object {
+        /** Reasoning models can think for a long time before the first token. */
+        const val READ_TIMEOUT_SECONDS = 300L
+    }
+}

@@ -1,0 +1,182 @@
+package com.muhan.intelligence.data.remote
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import com.muhan.intelligence.domain.model.StreamEvent
+
+/**
+ * Incremental parser for `text/event-stream` responses.
+ *
+ * Providers differ in how they shape a stream, so parsing is done generically from
+ * the JSON tree rather than via typed DTOs: DeepSeek/OpenAI use
+ * `choices[0].delta.{content,reasoning_content}`, Anthropic uses
+ * `content_block_delta.delta.text`, Gemini uses `candidates[0].content.parts[0].text`.
+ * All three collapse onto the same [StreamEvent] stream.
+ */
+class SseStreamParser(
+    private val flavor: com.muhan.intelligence.domain.model.ApiFlavor,
+    private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
+) {
+    private val buffer = StringBuilder()
+    private var sawDone = false
+
+    /** Feeds raw bytes; returns any complete events that became parseable. */
+    fun feed(chunk: String): List<StreamEvent> {
+        buffer.append(chunk)
+        val events = mutableListOf<StreamEvent>()
+
+        while (true) {
+            val boundary = findBoundary(buffer)
+            if (boundary == null) break
+            val rawEvent = buffer.substring(0, boundary.first)
+            buffer.delete(0, boundary.second)
+            val payload = extractData(rawEvent) ?: continue
+            if (payload == "[DONE]") {
+                sawDone = true
+                events += StreamEvent.Completed
+                continue
+            }
+            parsePayload(payload)?.let { events += it }
+        }
+        return events
+    }
+
+    /** Flushes any trailing event when the connection closes without a blank line. */
+    fun flush(): List<StreamEvent> {
+        if (buffer.isBlank()) return emptyList()
+        val payload = extractData(buffer.toString()) ?: return emptyList()
+        buffer.clear()
+        if (payload == "[DONE]") return listOf(StreamEvent.Completed)
+        return listOfNotNull(parsePayload(payload))
+    }
+
+    val completed: Boolean get() = sawDone
+
+    /** Returns (indexOfBoundary, nextIndex) for `\n\n` or `\r\n\r\n`. */
+    private fun findBoundary(sb: StringBuilder): Pair<Int, Int>? {
+        val text = sb.toString()
+        val lf = text.indexOf("\n\n")
+        val crlf = text.indexOf("\r\n\r\n")
+        return when {
+            lf >= 0 && crlf >= 0 ->
+                if (lf < crlf) lf to lf + 2 else crlf to crlf + 4
+            lf >= 0 -> lf to lf + 2
+            crlf >= 0 -> crlf to crlf + 4
+            else -> null
+        }
+    }
+
+    /** Collects `data:` lines per the SSE spec, ignoring comments and other fields. */
+    private fun extractData(block: String): String? {
+        val dataLines = block.lineSequence()
+            .map { it.trimEnd('\r') }
+            .filter { it.startsWith("data:") }
+            .map { it.removePrefix("data:").trimStart() }
+            .toList()
+        if (dataLines.isEmpty()) return null
+        return dataLines.joinToString("\n").trim().ifBlank { null }
+    }
+
+    private fun parsePayload(payload: String): StreamEvent? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+
+        // Some providers signal failures with an inline error object mid-stream.
+        root["error"]?.let { err ->
+            val msg = err.jsonObject["message"]?.jsonPrimitive?.contentOrNull
+            if (!msg.isNullOrBlank()) return StreamEvent.Failed(msg)
+        }
+
+        return when (flavor) {
+            com.muhan.intelligence.domain.model.ApiFlavor.OPENAI -> parseOpenAi(root)
+            com.muhan.intelligence.domain.model.ApiFlavor.ANTHROPIC -> parseAnthropic(root)
+            com.muhan.intelligence.domain.model.ApiFlavor.GEMINI -> parseGemini(root)
+        }
+    }
+
+    private fun parseOpenAi(root: JsonObject): StreamEvent? {
+        usageOf(root)?.let { usage ->
+            val prompt = usage["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+            val completion = usage["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+            if (prompt > 0 || completion > 0) return StreamEvent.Usage(prompt, completion)
+        }
+
+        val choices = root["choices"] as? JsonArray ?: return null
+        val first = choices.firstOrNull()?.jsonObject ?: return null
+        val finish = first["finish_reason"]?.jsonPrimitive?.contentOrNull
+        val delta = first["delta"]?.jsonObject
+
+        if (delta != null) {
+            reasoning(delta)?.let { return StreamEvent.ReasoningDelta(it) }
+            val text = delta["content"]?.jsonPrimitive?.contentOrNull
+            if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
+        }
+
+        // Non-streaming shape: `message.content`
+        first["message"]?.jsonObject?.let { msg ->
+            val text = msg["content"]?.jsonPrimitive?.contentOrNull
+            if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
+        }
+
+        if (finish != null) return StreamEvent.Completed
+        return null
+    }
+
+    private fun reasoning(delta: JsonObject): String? {
+        delta["reasoning_content"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
+        delta["reasoning"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
+        delta["thinking"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotEmpty() }?.let { return it }
+        return null
+    }
+
+    private fun parseAnthropic(root: JsonObject): StreamEvent? {
+        when (root["type"]?.jsonPrimitive?.contentOrNull) {
+            "content_block_delta" -> {
+                val delta = root["delta"]?.jsonObject ?: return null
+                when (delta["type"]?.jsonPrimitive?.contentOrNull) {
+                    "thinking_delta" -> {
+                        val t = delta["thinking"]?.jsonPrimitive?.contentOrNull
+                        if (!t.isNullOrEmpty()) return StreamEvent.ReasoningDelta(t)
+                    }
+                    "text_delta" -> {
+                        val t = delta["text"]?.jsonPrimitive?.contentOrNull
+                        if (!t.isNullOrEmpty()) return StreamEvent.ContentDelta(t)
+                    }
+                }
+                return null
+            }
+            "message_delta" -> {
+                val usage = root["usage"]?.jsonObject
+                val out = usage?.get("output_tokens")?.jsonPrimitive?.intOrNull ?: 0
+                if (out > 0) return StreamEvent.Usage(0, out)
+                return null
+            }
+            "message_stop" -> return StreamEvent.Completed
+            "error" -> {
+                val msg = root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+                    ?: "Anthropic 返回错误"
+                return StreamEvent.Failed(msg)
+            }
+        }
+        return null
+    }
+
+    private fun parseGemini(root: JsonObject): StreamEvent? {
+        val candidates = root["candidates"] as? JsonArray ?: return null
+        val first = candidates.firstOrNull()?.jsonObject ?: return null
+        val parts = first["content"]?.jsonObject?.get("parts") as? JsonArray
+        val text = parts?.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
+        if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
+        first["finishReason"]?.jsonPrimitive?.contentOrNull?.let { return StreamEvent.Completed }
+        return null
+    }
+
+    private fun usageOf(root: JsonObject): JsonObject? = root["usage"]?.jsonObject
+}

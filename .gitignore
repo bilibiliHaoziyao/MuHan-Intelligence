@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# Build outputs
+# ---------------------------------------------------------------------------
+*.iml
+.gradle/
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+app/build/
+app/release/
+app/debug/
+app/release/
+.kotlin/
+
+# ---------------------------------------------------------------------------
+# Local machine configuration
+# ---------------------------------------------------------------------------
+local.properties
+
+# NOTE: keystore.properties is intentionally NOT ignored in this repository.
+# It is committed together with the keystore so that CI can produce signed
+# builds without any manual setup. This is insecure by design and only
+# acceptable for a personal, self-distributed project.
+# For any real release, switch to GitHub Secrets (see README) and delete both
+# keystore.properties and the keystore file from the repository.
+
+# ---------------------------------------------------------------------------
+# IDE / OS
+# ---------------------------------------------------------------------------
+.idea/
+.DS_Store
+*.hprof
+*.log

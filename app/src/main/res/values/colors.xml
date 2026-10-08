@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="muhan_window_background">#FFF8FAFC</color>
+    <color name="muhan_splash_background">#FF6D5BF6</color>
+    <color name="muhan_brand">#FF6D5BF6</color>
+    <color name="muhan_brand_dark">#FF4C3FD6</color>
+    <color name="ic_launcher_background">#FF6D5BF6</color>
+</resources>
