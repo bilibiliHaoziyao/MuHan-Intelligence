@@ -58,6 +58,9 @@ jobs:
       # 从仓库内提交的 keystore 还原发布签名配置。
       # 注意：密钥库与口令按要求一同提交到仓库，这并不安全，
       # 仅适用于个人测试分发场景。生产项目请改用 GitHub Secrets。
+      #
+      # storeFile 是相对于 `:app` 模块目录解析的，因此仓库根目录下的
+      # keystore 必须写成 `../keystore/muhan-release.jks`。
       # ------------------------------------------------------------------
       - name: 准备发布签名
         env:
@@ -70,18 +73,27 @@ jobs:
 
           if [ -n "${KEYSTORE_B64:-}" ]; then
             echo "使用 Secrets 中的密钥库"
-            echo "$KEYSTORE_B64" | base64 -d > keystore/release.jks
-            printf 'storeFile=keystore/release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            echo "$KEYSTORE_B64" | base64 -d > app/keystore-release.jks
+            printf 'storeFile=keystore-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
               "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
           elif [ -f keystore/muhan-release.jks ]; then
             echo "使用仓库内提交的密钥库"
-            printf 'storeFile=keystore/muhan-release.jks\nstorePassword=MuHan2026Release\nkeyAlias=muhan\nkeyPassword=MuHan2026Release\n' > keystore.properties
+            printf 'storeFile=../keystore/muhan-release.jks\nstorePassword=MuHan2026Release\nkeyAlias=muhan\nkeyPassword=MuHan2026Release\n' > keystore.properties
           else
             echo "::error::未找到可用的签名密钥库"
             exit 1
           fi
 
+          echo "--- keystore.properties ---"
+          sed 's/Password=.*/Password=***/' keystore.properties
           chmod 600 keystore.properties
+
+      - name: 校验签名配置可解析
+        run: |
+          set -euo pipefail
+          test -f "$(cd app && realpath "$(grep -oP '^storeFile=\K.*' ../keystore.properties)")" \
+            || { echo "::error::签名文件路径无法解析"; exit 1; }
+          echo "签名文件路径解析正常"
 
       - name: 运行单元测试
         run: ./gradlew testDebugUnitTest --stacktrace

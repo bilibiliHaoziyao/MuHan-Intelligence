@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -19,6 +20,11 @@ plugins {
 //
 // If neither is present the release variant falls back to the debug signing
 // config so that local `assembleRelease` still produces an installable artifact.
+//
+// NOTE ON PATHS: Gradle resolves `file(...)` relative to this module directory
+// (:app), which is a classic source of "keystore not found" surprises when the
+// properties file was authored against the repository root. We therefore accept
+// both forms and resolve in a fixed order.
 // ---------------------------------------------------------------------------
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
@@ -31,12 +37,34 @@ fun signingValue(propKey: String, envKey: String): String? =
     keystoreProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
         ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
 
+/**
+ * Resolves a keystore path declared in [keystore.properties].
+ *
+ * Candidates are tried in order, which makes the file portable between the
+ * module-relative (`../keystore/x.jks`) and root-relative (`keystore/x.jks`)
+ * styles:
+ *   1. relative to `:app`
+ *   2. relative to the repository root
+ */
+fun resolveKeystoreFile(declaredPath: String): File {
+    val raw = File(declaredPath)
+    if (raw.isAbsolute) return raw
+    val moduleRelative = project.file(declaredPath)
+    if (moduleRelative.exists()) return moduleRelative
+    return rootProject.file(declaredPath)
+}
+
 val releaseStoreFilePath = signingValue("storeFile", "RELEASE_KEYSTORE_PATH")
 val releaseStorePassword = signingValue("storePassword", "RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = signingValue("keyAlias", "RELEASE_KEY_ALIAS")
 val releaseKeyPassword = signingValue("keyPassword", "RELEASE_KEY_PASSWORD")
 
-val hasReleaseSigning = releaseStoreFilePath != null &&
+val releaseKeystoreFile = releaseStoreFilePath
+    ?.takeIf { it.isNotBlank() }
+    ?.let { resolveKeystoreFile(it) }
+
+val hasReleaseSigning = releaseKeystoreFile != null &&
+    releaseKeystoreFile.exists() &&
     releaseStorePassword != null &&
     releaseKeyAlias != null &&
     releaseKeyPassword != null
@@ -59,7 +87,7 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = file(releaseStoreFilePath!!)
+                storeFile = releaseKeystoreFile
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
