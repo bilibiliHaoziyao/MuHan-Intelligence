@@ -4,7 +4,7 @@
 
 **由你自己掌管 API Key 的原生 Android AI 对话应用**
 
-[![version](https://img.shields.io/badge/version-0.1.0--dev-6D5BF6)](../../releases)
+[![version](https://img.shields.io/badge/version-0.2.0-6D5BF6)](../../releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)](https://developer.android.com/jetpack/compose)
@@ -31,6 +31,12 @@
 - 用户消息可编辑后重新发送，自动截断无效上下文
 - 失败时给出可读的中文原因，支持单条消息重试
 - 智能滚动跟随：流式时自动贴底，手动上滑即停止打扰
+- **多模态输入**：支持随消息附带最多 4 张图片（视觉模型识别）或文本 / 代码文件，文件内容自动内联进上下文
+- **深度思考开关**：一键开启 / 关闭推理模式（DeepSeek-R1、Claude 扩展思考、Gemini thinkingBudget 均已适配）
+- **联网搜索开关**：一键开启模型的联网检索能力（OpenAI / Claude / Gemini 三种协议各自适配）
+- **生图模式**：配置生图模型后，可直接在聊天里输入描述生成图片并保存到本地
+- 修复浅色 / 深色模式无法即时切换的问题
+- 修复模型回答时可能闪退的重大问题
 
 **模型服务**
 
@@ -59,16 +65,16 @@
 
 **新手引导**
 
-首次启动进入四步向导：欢迎 → 选择服务商 → 填写凭据 → **连接测试**。只有真实请求成功才会保存配置；向导可随时跳过，也能从设置里重新运行。
+首次启动进入向导，第一步先选择身份：**我是菜鸟**（每一步都给出最简单直白的说明与推荐配置）或 **我是迪克**（保留完整自定义项，并额外提供深度思考、联网搜索等高级默认值设置）。之后为：选择服务商 → 填写凭据 → **连接测试**。只有真实请求成功才会保存配置；向导可随时跳过，也能从设置里重新运行。
 
 ## 下载
 
-前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.1.0-dev-release.apk` 直接安装。
+前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0-release.apk` 直接安装。
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MuHan-Intelligence-0.1.0-dev-release.apk` | 约 2.3 MB | 混淆压缩后的发布版 |
-| `MuHan-Intelligence-0.1.0-dev-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
+| `MuHan-Intelligence-0.2.0-release.apk` | 约 2.4 MB | 混淆压缩后的发布版 |
+| `MuHan-Intelligence-0.2.0-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
 | `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
 
 核对下载完整性：
@@ -214,8 +220,8 @@ app/src/main/java/com/muhan/intelligence/
 
 ## 已知限制
 
-- 仅支持纯文本对话，暂不支持图片 / 文件输入
 - 会话内的消息搜索尚未实现（历史列表支持按标题搜索）
+- 非文本类二进制附件不会发送给模型（仅提示不支持）
 - 表格以等宽文本渲染，未做真正的表格布局
 - 关闭流式输出后走非流式路径，但界面仍按流式状态机渲染
 

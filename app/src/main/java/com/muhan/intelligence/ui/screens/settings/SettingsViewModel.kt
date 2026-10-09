@@ -120,6 +120,7 @@ data class ProviderEditorUiState(
     val displayName: String = "",
     val baseUrl: String = "",
     val modelName: String = "",
+    val imageModel: String = "",
     val apiKey: String = "",
     val apiKeyVisible: Boolean = false,
     val existingMaskedKey: String? = null,
@@ -171,6 +172,7 @@ class ProviderEditorViewModel @Inject constructor(
                             displayName = existing.displayName,
                             baseUrl = existing.baseUrl,
                             modelName = existing.modelName,
+                            imageModel = existing.imageModel.orEmpty(),
                             flavor = existing.flavor,
                             isActive = existing.isActive,
                             existingMaskedKey = providerRepository.maskedApiKey(providerId),
@@ -196,6 +198,8 @@ class ProviderEditorViewModel @Inject constructor(
     }
 
     fun onModelNameChange(value: String) = _state.update { it.copy(modelName = value, error = null) }
+
+    fun onImageModelChange(value: String) = _state.update { it.copy(imageModel = value, error = null) }
 
     fun onApiKeyChange(value: String) = _state.update {
         it.copy(apiKey = value, error = null, testResult = null)
@@ -260,6 +264,7 @@ class ProviderEditorViewModel @Inject constructor(
                         displayName = current.displayName.trim(),
                         baseUrl = current.baseUrl.trim().trimEnd('/'),
                         modelName = current.modelName.trim(),
+                        imageModel = current.imageModel.trim().takeIf { it.isNotBlank() },
                         flavor = current.flavor,
                         // New providers become active immediately so the user is
                         // never left with an empty selection.

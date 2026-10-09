@@ -28,7 +28,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -38,6 +38,11 @@ import javax.inject.Inject
  * Onboarding appears only when it has never been completed *and* no provider is
  * configured — someone who skipped the wizard but later added a key should not be
  * dragged back into it.
+ *
+ * The preference flow is collected *continuously* (not via [kotlinx.coroutines.flow.first]):
+ * the theme picker in settings must take effect immediately, and it drives this
+ * state — a one-shot read froze the theme for the whole process, which was the
+ * "浅色/深色切换不生效" bug in 0.1.0.
  */
 @HiltViewModel
 class StartupViewModel @Inject constructor(
@@ -58,15 +63,21 @@ class StartupViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val prefs = settingsRepository.preferences.first()
-            val provider = providerRepository.observeActiveProvider().first()
-            _state.value = StartState(
-                resolved = true,
-                onboardingCompleted = prefs.onboardingCompleted,
-                hasProvider = provider != null,
-                themeMode = prefs.themeMode,
-                dynamicColor = prefs.dynamicColor,
-            )
+            settingsRepository.preferences.collect { prefs ->
+                _state.update {
+                    it.copy(
+                        resolved = true,
+                        onboardingCompleted = prefs.onboardingCompleted,
+                        themeMode = prefs.themeMode,
+                        dynamicColor = prefs.dynamicColor,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            providerRepository.observeActiveProvider().collect { provider ->
+                _state.update { it.copy(hasProvider = provider != null) }
+            }
         }
     }
 }

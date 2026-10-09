@@ -128,7 +128,7 @@ class EndpointResolverTest {
     }
 }
 
-class RequestBodyFactoryTest {
+class RequestBodyFactoryLegacyTest {
 
     @Test
     fun `OpenAI 请求体包含 system 与历史消息`() {
@@ -136,9 +136,9 @@ class RequestBodyFactoryTest {
             flavor = ApiFlavor.OPENAI,
             model = "deepseek-chat",
             messages = listOf(
-                com.muhan.intelligence.domain.model.Role.USER to "你好",
-                com.muhan.intelligence.domain.model.Role.ASSISTANT to "你好呀",
-                com.muhan.intelligence.domain.model.Role.USER to "再见",
+                RequestBodyFactory.OutboundMessage(com.muhan.intelligence.domain.model.Role.USER, "你好"),
+                RequestBodyFactory.OutboundMessage(com.muhan.intelligence.domain.model.Role.ASSISTANT, "你好呀"),
+                RequestBodyFactory.OutboundMessage(com.muhan.intelligence.domain.model.Role.USER, "再见"),
             ),
             systemPrompt = "你是助手",
             temperature = 1.0f,
@@ -160,7 +160,7 @@ class RequestBodyFactoryTest {
         val body = RequestBodyFactory.build(
             flavor = ApiFlavor.ANTHROPIC,
             model = "claude-3-5-sonnet-latest",
-            messages = listOf(com.muhan.intelligence.domain.model.Role.USER to "你好"),
+            messages = listOf(RequestBodyFactory.OutboundMessage(com.muhan.intelligence.domain.model.Role.USER, "你好")),
             systemPrompt = "你是助手",
             temperature = 1.0f,
             topP = 1.0f,
@@ -178,7 +178,7 @@ class RequestBodyFactoryTest {
         val body = RequestBodyFactory.build(
             flavor = ApiFlavor.GEMINI,
             model = "gemini-2.0-flash",
-            messages = listOf(com.muhan.intelligence.domain.model.Role.USER to "你好"),
+            messages = listOf(RequestBodyFactory.OutboundMessage(com.muhan.intelligence.domain.model.Role.USER, "你好")),
             systemPrompt = "你是助手",
             temperature = 1.0f,
             topP = 1.0f,

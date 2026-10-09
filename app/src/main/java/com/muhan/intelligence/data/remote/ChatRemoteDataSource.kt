@@ -50,11 +50,13 @@ class ChatRemoteDataSource @Inject constructor() {
     fun streamChat(
         provider: ProviderConfig,
         apiKey: String,
-        messages: List<Pair<Role, String>>,
+        messages: List<RequestBodyFactory.OutboundMessage>,
         systemPrompt: String,
         temperature: Float,
         topP: Float,
         maxTokens: Int,
+        thinkingEnabled: Boolean = false,
+        webSearchEnabled: Boolean = false,
     ): Flow<StreamEvent> = callbackFlow {
         val request = buildRequest(
             provider = provider,
@@ -65,6 +67,8 @@ class ChatRemoteDataSource @Inject constructor() {
             topP = topP,
             maxTokens = maxTokens,
             stream = true,
+            thinkingEnabled = thinkingEnabled,
+            webSearchEnabled = webSearchEnabled,
         )
 
         val call = client.newCall(request)
@@ -160,7 +164,7 @@ class ChatRemoteDataSource @Inject constructor() {
         val request = buildRequest(
             provider = provider,
             apiKey = apiKey,
-            messages = listOf(Role.USER to "ping"),
+            messages = listOf(RequestBodyFactory.OutboundMessage(Role.USER, "ping")),
             systemPrompt = "",
             temperature = 0f,
             topP = 1f,
@@ -192,15 +196,73 @@ class ChatRemoteDataSource @Inject constructor() {
         }
     }
 
+    /**
+     * One-shot image generation against the OpenAI-compatible
+     * `POST {base}/v1/images/generations` endpoint. Works with any provider that
+     * mirrors that shape (OpenAI, SiliconFlow, Zhipu CogView, DashScope compat…).
+     */
+    suspend fun generateImage(
+        provider: ProviderConfig,
+        apiKey: String,
+        imageModel: String,
+        prompt: String,
+    ): Result<RequestBodyFactory.ImageReply> = withContext(Dispatchers.IO) {
+        val url = EndpointResolver.resolveImages(provider.sanitizedBaseUrl)
+
+        val request = Request.Builder()
+            .url(url)
+            .post(RequestBodyFactory.buildImageRequest(imageModel, prompt).toRequestBody(jsonMedia))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .apply {
+                when (provider.flavor) {
+                    ApiFlavor.OPENAI -> header("Authorization", "Bearer $apiKey")
+                    ApiFlavor.ANTHROPIC -> {
+                        header("x-api-key", apiKey)
+                        header("anthropic-version", "2023-06-01")
+                    }
+                    ApiFlavor.GEMINI -> header("x-goog-api-key", apiKey)
+                }
+            }
+            .build()
+
+        try {
+            client.newCall(request).execute().use { res ->
+                val body = runCatching { res.body?.string() }.getOrNull().orEmpty()
+                if (!res.isSuccessful) {
+                    return@use Result.failure(
+                        IOException(
+                            ApiErrorMapper.describe(
+                                IOException("HTTP ${res.code}"),
+                                httpCode = res.code,
+                                rawBody = body,
+                            ),
+                        ),
+                    )
+                }
+                val reply = RequestBodyFactory.extractImageReply(body)
+                if (reply == null) {
+                    Result.failure(IOException("服务商返回了无法解析的生图结果。"))
+                } else {
+                    Result.success(reply)
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(IOException(ApiErrorMapper.describe(e)))
+        }
+    }
+
     private fun buildRequest(
         provider: ProviderConfig,
         apiKey: String,
-        messages: List<Pair<Role, String>>,
+        messages: List<RequestBodyFactory.OutboundMessage>,
         systemPrompt: String,
         temperature: Float,
         topP: Float,
         maxTokens: Int,
         stream: Boolean,
+        thinkingEnabled: Boolean = false,
+        webSearchEnabled: Boolean = false,
     ): Request {
         val url = EndpointResolver.resolve(provider, stream)
         val payload = RequestBodyFactory.build(
@@ -212,6 +274,8 @@ class ChatRemoteDataSource @Inject constructor() {
             topP = topP,
             maxTokens = maxTokens,
             stream = stream,
+            thinkingEnabled = thinkingEnabled,
+            webSearchEnabled = webSearchEnabled,
         )
 
         return Request.Builder()

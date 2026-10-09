@@ -167,6 +167,15 @@ fun ProviderEditorScreen(
             )
             Spacer(Modifier.height(14.dp))
 
+            EditorField(
+                label = "生图模型（可选）",
+                value = state.imageModel,
+                onValueChange = viewModel::onImageModelChange,
+                placeholder = "例如：dall-e-3、gemini-2.0-flash-exp",
+                helper = "填写后可在聊天中开启生图模式",
+            )
+            Spacer(Modifier.height(14.dp))
+
             FlavorPicker(selected = state.flavor, onSelect = viewModel::onFlavorChange)
 
             Spacer(Modifier.height(20.dp))

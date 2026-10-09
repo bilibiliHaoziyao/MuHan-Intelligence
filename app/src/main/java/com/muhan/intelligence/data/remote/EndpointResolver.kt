@@ -21,6 +21,23 @@ object EndpointResolver {
         }
     }
 
+    /** OpenAI-compatible image generation: `{base}/v1/images/generations`. */
+    fun resolveImages(base: String): String {
+        val trimmed = base.trimEnd('/')
+        val lower = trimmed.lowercase()
+        if (lower.endsWith("/images/generations")) return trimmed
+        // `/chat/completions` style bases → swap the tail for the images endpoint.
+        if (lower.endsWith("/chat/completions")) {
+            return trimmed.removeSuffix("/chat/completions") + "/images/generations"
+        }
+        val hasVersionSegment = Regex("""/v\d+([a-z0-9\-]*)?$""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(trimmed)
+        return when {
+            hasVersionSegment -> "$trimmed/images/generations"
+            else -> "$trimmed/v1/images/generations"
+        }
+    }
+
     /** e.g. https://api.deepseek.com → https://api.deepseek.com/v1/chat/completions */
     private fun resolveOpenAi(base: String): String {
         val lower = base.lowercase()

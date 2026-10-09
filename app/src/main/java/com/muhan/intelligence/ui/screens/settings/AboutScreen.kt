@@ -77,25 +77,10 @@ fun AboutScreen(
             )
             Spacer(Modifier.height(5.dp))
             Text(
-                text = "版本 ${state.versionName}（build ${state.versionCode}）",
+                text = "版本 ${state.versionName}",
                 style = MaterialTheme.typography.labelMedium,
                 color = scheme.onSurfaceVariant,
             )
-            if (state.isDebugBuild) {
-                Spacer(Modifier.height(7.dp))
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(scheme.tertiaryContainer)
-                        .padding(horizontal = 9.dp, vertical = 3.dp),
-                ) {
-                    Text(
-                        text = "DEBUG 构建",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onTertiaryContainer,
-                    )
-                }
-            }
 
             Spacer(Modifier.height(20.dp))
 
@@ -133,20 +118,6 @@ fun AboutScreen(
                     subtitle = "MIT License",
                     onClick = { runCatching { uriHandler.openUri(LICENSE_URL) } },
                 )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            SectionLabel("构建信息")
-            Spacer(Modifier.height(8.dp))
-            SettingsCard {
-                BuildInfoRow("应用 ID", "com.muhan.intelligence")
-                Divider()
-                BuildInfoRow("最低系统版本", "Android 8.0 (API 26)")
-                Divider()
-                BuildInfoRow("目标系统版本", "Android 15 (API 35)")
-                Divider()
-                BuildInfoRow("构建类型", if (state.isDebugBuild) "debug" else "release")
             }
 
             Spacer(Modifier.height(28.dp))
@@ -197,29 +168,6 @@ private fun LinkRow(
             contentDescription = null,
             tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.size(16.dp),
-        )
-    }
-}
-
-@Composable
-private fun BuildInfoRow(label: String, value: String) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = scheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-            color = scheme.onSurface,
         )
     }
 }

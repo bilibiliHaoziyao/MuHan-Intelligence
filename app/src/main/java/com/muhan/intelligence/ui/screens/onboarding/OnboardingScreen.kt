@@ -105,7 +105,7 @@ fun OnboardingScreen(
                 label = "onboardingStep",
             ) { step ->
                 when (step) {
-                    OnboardingStep.WELCOME -> WelcomeStep(onNext = viewModel::next)
+                    OnboardingStep.PERSONA -> PersonaStep(state = state, viewModel = viewModel)
                     OnboardingStep.PROVIDER -> ProviderStep(state = state, viewModel = viewModel)
                     OnboardingStep.CREDENTIALS -> CredentialsStep(state = state, viewModel = viewModel)
                     OnboardingStep.VERIFY -> VerifyStep(
@@ -127,9 +127,9 @@ private fun WizardHeader(
     onSkip: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val totalSteps = 4
+    val totalSteps = 3
     val index = when (step) {
-        OnboardingStep.WELCOME -> 0
+        OnboardingStep.PERSONA -> 0
         OnboardingStep.PROVIDER -> 1
         OnboardingStep.CREDENTIALS -> 2
         OnboardingStep.VERIFY -> 3
@@ -143,7 +143,7 @@ private fun WizardHeader(
                     .size(38.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .then(
-                        if (step == OnboardingStep.WELCOME || step == OnboardingStep.DONE) {
+                        if (step == OnboardingStep.PERSONA || step == OnboardingStep.DONE) {
                             Modifier
                         } else {
                             Modifier.clickableNoIndication(onClick = onBack)
@@ -151,7 +151,7 @@ private fun WizardHeader(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                if (step != OnboardingStep.WELCOME && step != OnboardingStep.DONE) {
+                if (step != OnboardingStep.PERSONA && step != OnboardingStep.DONE) {
                     Icon(
                         imageVector = Icons.Outlined.ArrowBack,
                         contentDescription = "返回",
@@ -174,7 +174,7 @@ private fun WizardHeader(
             }
         }
 
-        if (step != OnboardingStep.WELCOME && step != OnboardingStep.DONE) {
+        if (step != OnboardingStep.PERSONA && step != OnboardingStep.DONE) {
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -197,11 +197,12 @@ private fun WizardHeader(
     }
 }
 
-// ---------------------------------------------------------------- step 1: welcome
+// ------------------------------------------------------------ step 0: persona
 
 @Composable
-private fun WelcomeStep(onNext: () -> Unit) {
+private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel) {
     val scheme = MaterialTheme.colorScheme
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -209,73 +210,105 @@ private fun WelcomeStep(onNext: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BrandMark(size = 88.dp, animated = true)
-        Spacer(Modifier.height(26.dp))
+        BrandMark(size = 76.dp, animated = true)
+        Spacer(Modifier.height(18.dp))
         Text(
-            text = "慕寒智能",
-            style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold),
+            text = "欢迎使用慕寒智能",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
             color = scheme.onSurface,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "0.1.0-dev",
-            style = MaterialTheme.typography.labelMedium,
-            color = scheme.primary,
-        )
-        Spacer(Modifier.height(18.dp))
-        Text(
-            text = "一个由你自己掌管 API Key 的 AI 对话客户端\n无需注册，数据只留在你的设备上",
+            text = "开始之前，先告诉我们你是哪种玩家",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
         )
 
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(30.dp))
 
-        listOf(
-            Triple(Icons.Outlined.Key, "自带密钥", "填入你自己的 API Key，不经过任何中转服务器"),
-            Triple(Icons.Outlined.Shield, "本地优先", "密钥加密存储，对话记录仅保存在本机"),
-            Triple(Icons.Outlined.CheckCircleOutline, "广泛兼容", "支持 DeepSeek、Kimi、智谱、OpenAI、Claude 等"),
-        ).forEach { (icon, title, desc) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 9.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(scheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = scheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                Spacer(Modifier.width(13.dp))
-                Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = scheme.onSurface,
-                    )
-                    Text(
-                        text = desc,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant,
-                    )
-                }
-            }
+        PersonaCard(
+            title = "我是菜鸟",
+            description = "第一次用 AI 应用？选这个。\n引导会非常简单：选服务 → 贴 Key → 完成，全程不需要懂任何技术名词。",
+            selected = state.persona == com.muhan.intelligence.domain.model.Persona.ROOKIE,
+            emoji = "🐣",
+            onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.ROOKIE) },
+        )
+        Spacer(Modifier.height(12.dp))
+        PersonaCard(
+            title = "我是迪克",
+            description = "折腾过 API、想要完全掌控？选这个。\n保留完整配置流程，额外提供协议选择、模型切换与深度思考 / 联网搜索等高级选项。",
+            selected = state.persona == com.muhan.intelligence.domain.model.Persona.GEEK,
+            emoji = "🛠️",
+            onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.GEEK) },
+        )
+
+        if (state.errorMessage != null) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = state.errorMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.error,
+                textAlign = TextAlign.Center,
+            )
         }
 
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(26.dp))
 
-        PrimaryButton(text = "开始设置", onClick = onNext, modifier = Modifier.fillMaxWidth())
+        PrimaryButton(
+            text = "继续",
+            onClick = viewModel::next,
+            enabled = state.persona != null,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun PersonaCard(
+    title: String,
+    description: String,
+    selected: Boolean,
+    emoji: String,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) scheme.primaryContainer else scheme.surfaceContainerLow)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) scheme.primary else scheme.outlineVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(18.dp),
+            )
+            .clickableNoIndication(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(if (selected) scheme.primary else scheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = emoji, style = MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (selected) scheme.onPrimaryContainer else scheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -289,13 +322,17 @@ private fun ProviderStep(state: OnboardingUiState, viewModel: OnboardingViewMode
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             Text(
-                text = "选择模型服务",
+                text = if (state.isRookie) "选择你想用的 AI" else "选择模型服务",
                 style = MaterialTheme.typography.headlineSmall,
                 color = scheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "挑选一个常用服务商快速开始，或在下方选择自定义接入",
+                text = if (state.isRookie) {
+                    "挑一个就行了。推荐「深度求索」，注册就送免费额度"
+                } else {
+                    "挑选一个常用服务商快速开始，或在下方选择自定义接入"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -316,13 +353,15 @@ private fun ProviderStep(state: OnboardingUiState, viewModel: OnboardingViewMode
                 )
             }
 
-            item {
-                Spacer(Modifier.height(4.dp))
-                CustomEndpointCard(
-                    selected = state.choice == ProviderChoice.Custom,
-                    onClick = { viewModel.chooseCustom() },
-                )
-                Spacer(Modifier.height(8.dp))
+            if (!state.isRookie) {
+                item {
+                    Spacer(Modifier.height(4.dp))
+                    CustomEndpointCard(
+                        selected = state.choice == ProviderChoice.Custom,
+                        onClick = { viewModel.chooseCustom() },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
         }
 
@@ -479,27 +518,33 @@ private fun CredentialsStep(state: OnboardingUiState, viewModel: OnboardingViewM
                 .padding(horizontal = 20.dp),
         ) {
             Text(
-                text = "填写接入信息",
+                text = if (state.isRookie) "粘贴你的 Key" else "填写接入信息",
                 style = MaterialTheme.typography.headlineSmall,
                 color = scheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "这些信息只保存在你的设备上，密钥会使用系统级加密存储",
+                text = if (state.isRookie) {
+                    "只差最后一步：把 API Key 粘贴到下面的框里。Key 只保存在你的手机上，请放心粘贴。"
+                } else {
+                    "这些信息只保存在你的设备上，密钥会使用系统级加密存储"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(20.dp))
 
-            LabeledField(
-                label = "服务名称",
-                value = state.displayName,
-                onValueChange = viewModel::onDisplayNameChange,
-                placeholder = "例如：我的 DeepSeek",
-            )
+            if (!state.isRookie) {
+                LabeledField(
+                    label = "服务名称",
+                    value = state.displayName,
+                    onValueChange = viewModel::onDisplayNameChange,
+                    placeholder = "例如：我的 DeepSeek",
+                )
 
-            Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(14.dp))
+            }
 
             if (state.choice == ProviderChoice.Custom) {
                 LabeledField(
@@ -516,7 +561,7 @@ private fun CredentialsStep(state: OnboardingUiState, viewModel: OnboardingViewM
                     onSelect = viewModel::onFlavorChange,
                 )
                 Spacer(Modifier.height(14.dp))
-            } else {
+            } else if (!state.isRookie) {
                 LabeledField(
                     label = "接口地址 (Base URL)",
                     value = state.baseUrl,
@@ -526,38 +571,40 @@ private fun CredentialsStep(state: OnboardingUiState, viewModel: OnboardingViewM
                 Spacer(Modifier.height(14.dp))
             }
 
-            LabeledField(
-                label = "模型名称",
-                value = state.modelName,
-                onValueChange = viewModel::onModelNameChange,
-                placeholder = "例如：deepseek-chat",
-            )
+            if (!state.isRookie) {
+                LabeledField(
+                    label = "模型名称",
+                    value = state.modelName,
+                    onValueChange = viewModel::onModelNameChange,
+                    placeholder = "例如：deepseek-chat",
+                )
 
-            state.selectedPreset?.let { preset ->
-                if (preset.modelSuggestions.size > 1) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "常用模型",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(7.dp))
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        preset.modelSuggestions.forEach { model ->
-                            ModelChip(
-                                model = model,
-                                selected = state.modelName == model,
-                                onClick = { viewModel.selectSuggestedModel(model) },
-                            )
+                state.selectedPreset?.let { preset ->
+                    if (preset.modelSuggestions.size > 1) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "常用模型",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            preset.modelSuggestions.forEach { model ->
+                                ModelChip(
+                                    model = model,
+                                    selected = state.modelName == model,
+                                    onClick = { viewModel.selectSuggestedModel(model) },
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(18.dp))
+            }
 
             LabeledField(
                 label = "API Key",
@@ -761,13 +808,17 @@ private fun VerifyStep(
                 .padding(horizontal = 20.dp),
         ) {
             Text(
-                text = "测试连接",
+                text = if (state.isRookie) "检查一下" else "测试连接",
                 style = MaterialTheme.typography.headlineSmall,
                 color = scheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "先确认配置可用，再开始对话",
+                text = if (state.isRookie) {
+                    "点下面的「开始测试」，成功后就能直接开聊了"
+                } else {
+                    "先确认配置可用，再开始对话"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -793,6 +844,11 @@ private fun VerifyStep(
                     ConfigLine("模型", state.modelName)
                     ConfigLine("API Key", maskKey(state.apiKey))
                 }
+            }
+
+            if (!state.isRookie) {
+                Spacer(Modifier.height(16.dp))
+                GeekAdvancedCard(state = state, viewModel = viewModel)
             }
 
             Spacer(Modifier.height(18.dp))
@@ -866,6 +922,70 @@ private fun VerifyStep(
                     }
                 }
             },
+        )
+    }
+}
+
+/** 迪克模式的高级默认开关：完成引导时写入全局设置。 */
+@Composable
+private fun GeekAdvancedCard(state: OnboardingUiState, viewModel: OnboardingViewModel) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        color = scheme.surfaceContainerLow,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 13.dp, bottom = 5.dp)) {
+            Text(
+                text = "高级选项（随时可在设置中修改）",
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            AdvancedToggleRow(
+                title = "默认开启深度思考",
+                subtitle = "推理模型（如 DeepSeek-R1、o 系列）会先思考再作答",
+                checked = state.advancedThinking,
+                onCheckedChange = viewModel::setAdvancedThinking,
+            )
+            AdvancedToggleRow(
+                title = "默认开启联网搜索",
+                subtitle = "回答前先检索网络资料（需服务商支持）",
+                checked = state.advancedWebSearch,
+                onCheckedChange = viewModel::setAdvancedWebSearch,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdvancedToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }

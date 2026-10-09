@@ -9,7 +9,6 @@ import com.muhan.intelligence.domain.model.ApiFlavor
 import com.muhan.intelligence.domain.model.ConnectionTestResult
 import com.muhan.intelligence.domain.model.MessageStatus
 import com.muhan.intelligence.domain.model.ProviderConfig
-import com.muhan.intelligence.domain.model.Role
 import com.muhan.intelligence.domain.model.StreamEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -66,11 +65,13 @@ class ProviderRepository @Inject constructor(
     /** Streams a completion for [provider], resolving its key from encrypted storage. */
     fun streamCompletion(
         provider: ProviderConfig,
-        messages: List<Pair<Role, String>>,
+        messages: List<com.muhan.intelligence.data.remote.RequestBodyFactory.OutboundMessage>,
         systemPrompt: String,
         temperature: Float,
         topP: Float,
         maxTokens: Int,
+        thinkingEnabled: Boolean = false,
+        webSearchEnabled: Boolean = false,
     ): Flow<StreamEvent> {
         val key = secureKeyStore.getApiKey(provider.id)
             ?: return kotlinx.coroutines.flow.flow {
@@ -85,7 +86,21 @@ class ProviderRepository @Inject constructor(
             temperature = temperature,
             topP = topP,
             maxTokens = maxTokens,
+            thinkingEnabled = thinkingEnabled,
+            webSearchEnabled = webSearchEnabled,
         )
+    }
+
+    /** Runs an image-generation request with the provider's optional image model. */
+    suspend fun generateImage(
+        provider: ProviderConfig,
+        prompt: String,
+    ): Result<com.muhan.intelligence.data.remote.RequestBodyFactory.ImageReply> {
+        val imageModel = provider.imageModel
+            ?: return Result.failure(IllegalStateException("当前服务未配置生图模型。"))
+        val key = secureKeyStore.getApiKey(provider.id)
+            ?: return Result.failure(IllegalStateException("尚未为该模型配置 API Key。"))
+        return remote.generateImage(provider, key, imageModel, prompt)
     }
 
     suspend fun testConnection(config: ProviderConfig, apiKeyOverride: String? = null): ConnectionTestResult {
@@ -132,6 +147,7 @@ class ProviderRepository @Inject constructor(
         flavor = runCatching { ApiFlavor.valueOf(flavor) }.getOrDefault(ApiFlavor.OPENAI),
         isActive = isActive,
         createdAt = createdAt,
+        imageModel = imageModel?.takeIf { it.isNotBlank() },
     )
 
     private fun ProviderConfig.toEntity() = ProviderEntity(
@@ -142,5 +158,6 @@ class ProviderRepository @Inject constructor(
         flavor = flavor.name,
         isActive = isActive,
         createdAt = createdAt,
+        imageModel = imageModel,
     )
 }

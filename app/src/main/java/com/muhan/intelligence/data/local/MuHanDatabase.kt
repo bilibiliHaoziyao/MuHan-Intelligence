@@ -9,7 +9,7 @@ import androidx.room.RoomDatabase
         MessageEntity::class,
         ProviderEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MuHanDatabase : RoomDatabase() {

@@ -46,6 +46,10 @@ data class MessageEntity(
     @ColumnInfo(name = "model_name") val modelName: String?,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "token_count") val tokenCount: Int?,
+    /** JSON-encoded list of MessageAttachment; "[]" when the turn has none. */
+    val attachments: String = "[]",
+    /** Generated image (image model reply): local file path or https URL. */
+    @ColumnInfo(name = "image_url") val imageUrl: String? = null,
 )
 
 @Entity(tableName = "providers")
@@ -57,4 +61,6 @@ data class ProviderEntity(
     val flavor: String,
     @ColumnInfo(name = "is_active") val isActive: Boolean,
     @ColumnInfo(name = "created_at") val createdAt: Long,
+    /** Optional image-generation model on the same account (OpenAI-compatible). */
+    @ColumnInfo(name = "image_model") val imageModel: String? = null,
 )

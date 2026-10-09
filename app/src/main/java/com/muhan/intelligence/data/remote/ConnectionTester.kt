@@ -90,7 +90,7 @@ class ConnectionTester @Inject constructor() {
         val payload = RequestBodyFactory.build(
             flavor = config.flavor,
             model = config.modelName,
-            messages = listOf(Role.USER to "hi"),
+            messages = listOf(RequestBodyFactory.OutboundMessage(Role.USER, "hi")),
             systemPrompt = "",
             temperature = 0f,
             topP = 1f,

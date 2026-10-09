@@ -19,6 +19,7 @@ import javax.inject.Singleton
 class ConversationRepository @Inject constructor(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
+    private val attachmentStore: com.muhan.intelligence.data.local.AttachmentStore,
 ) {
 
     fun observeConversations(): Flow<List<Conversation>> =
@@ -152,6 +153,8 @@ class ConversationRepository @Inject constructor(
         modelName = modelName,
         createdAt = createdAt,
         tokenCount = tokenCount,
+        attachments = attachmentStore.deserialize(attachments),
+        imageUrl = imageUrl,
     )
 
     private fun ChatMessage.toEntity() = MessageEntity(
@@ -165,6 +168,8 @@ class ConversationRepository @Inject constructor(
         modelName = modelName,
         createdAt = createdAt,
         tokenCount = tokenCount,
+        attachments = attachmentStore.serialize(attachments),
+        imageUrl = imageUrl,
     )
 
     companion object {

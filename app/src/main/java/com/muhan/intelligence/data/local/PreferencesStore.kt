@@ -38,6 +38,7 @@ class PreferencesStore @Inject constructor(
         val streamEnabled = booleanPreferencesKey("stream_enabled")
         val sendHistory = booleanPreferencesKey("send_history")
         val reasoningEnabled = booleanPreferencesKey("reasoning_enabled")
+        val webSearchEnabled = booleanPreferencesKey("web_search_enabled")
     }
 
     val preferences: Flow<AppPreferences> = context.preferencesDataStore.data.map { prefs ->
@@ -54,6 +55,7 @@ class PreferencesStore @Inject constructor(
                 streamEnabled = prefs[Keys.streamEnabled] ?: true,
                 sendHistory = prefs[Keys.sendHistory] ?: true,
                 reasoningEnabled = prefs[Keys.reasoningEnabled] ?: true,
+                webSearchEnabled = prefs[Keys.webSearchEnabled] ?: false,
             ),
         )
     }
@@ -79,6 +81,7 @@ class PreferencesStore @Inject constructor(
             prefs[Keys.streamEnabled] = settings.streamEnabled
             prefs[Keys.sendHistory] = settings.sendHistory
             prefs[Keys.reasoningEnabled] = settings.reasoningEnabled
+            prefs[Keys.webSearchEnabled] = settings.webSearchEnabled
         }
     }
 
@@ -91,6 +94,7 @@ class PreferencesStore @Inject constructor(
             prefs.remove(Keys.streamEnabled)
             prefs.remove(Keys.sendHistory)
             prefs.remove(Keys.reasoningEnabled)
+            prefs.remove(Keys.webSearchEnabled)
         }
     }
 }

@@ -14,12 +14,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Which pane of the wizard is showing. */
-enum class OnboardingStep { WELCOME, PROVIDER, CREDENTIALS, VERIFY, DONE }
+enum class OnboardingStep { PERSONA, PROVIDER, CREDENTIALS, VERIFY, DONE }
 
 /** How the user is picking their provider on the second step. */
 sealed interface ProviderChoice {
@@ -28,7 +29,8 @@ sealed interface ProviderChoice {
 }
 
 data class OnboardingUiState(
-    val step: OnboardingStep = OnboardingStep.WELCOME,
+    val step: OnboardingStep = OnboardingStep.PERSONA,
+    val persona: com.muhan.intelligence.domain.model.Persona? = null,
     val choice: ProviderChoice = ProviderChoice.Preset,
     val selectedPreset: ProviderPreset? = null,
     val displayName: String = "",
@@ -41,6 +43,9 @@ data class OnboardingUiState(
     val testResult: ConnectionTestResult? = null,
     val errorMessage: String? = null,
     val savedProvider: ProviderConfig? = null,
+    /** 迪克模式的默认能力开关（完成引导时写入设置）。 */
+    val advancedThinking: Boolean = false,
+    val advancedWebSearch: Boolean = false,
 ) {
     /** Live validation gate for the credentials step. */
     val credentialsValid: Boolean
@@ -48,6 +53,8 @@ data class OnboardingUiState(
             modelName.isNotBlank() &&
             apiKey.isNotBlank() &&
             (baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))
+
+    val isRookie: Boolean get() = persona == com.muhan.intelligence.domain.model.Persona.ROOKIE
 }
 
 @HiltViewModel
@@ -71,7 +78,13 @@ class OnboardingViewModel @Inject constructor(
     fun next() {
         val current = _state.value.step
         val next = when (current) {
-            OnboardingStep.WELCOME -> OnboardingStep.PROVIDER
+            OnboardingStep.PERSONA ->
+                if (_state.value.persona == null) {
+                    _state.update { it.copy(errorMessage = "先选一个适合你的模式吧。") }
+                    return
+                } else {
+                    OnboardingStep.PROVIDER
+                }
             OnboardingStep.PROVIDER ->
                 if (_state.value.choice == ProviderChoice.Preset && _state.value.selectedPreset == null) {
                     _state.update { it.copy(errorMessage = "请先选择一个模型服务，或选择「自定义接入」。") }
@@ -94,14 +107,26 @@ class OnboardingViewModel @Inject constructor(
 
     fun back() {
         val previous = when (_state.value.step) {
-            OnboardingStep.WELCOME -> OnboardingStep.WELCOME
-            OnboardingStep.PROVIDER -> OnboardingStep.WELCOME
+            OnboardingStep.PERSONA -> OnboardingStep.PERSONA
+            OnboardingStep.PROVIDER -> OnboardingStep.PERSONA
             OnboardingStep.CREDENTIALS -> OnboardingStep.PROVIDER
             OnboardingStep.VERIFY -> OnboardingStep.CREDENTIALS
             OnboardingStep.DONE -> OnboardingStep.VERIFY
         }
         goTo(previous)
     }
+
+    // ------------------------------------------------------------------ persona
+
+    fun selectPersona(persona: com.muhan.intelligence.domain.model.Persona) {
+        _state.update { it.copy(persona = persona, errorMessage = null) }
+    }
+
+    fun setAdvancedThinking(enabled: Boolean) =
+        _state.update { it.copy(advancedThinking = enabled) }
+
+    fun setAdvancedWebSearch(enabled: Boolean) =
+        _state.update { it.copy(advancedWebSearch = enabled) }
 
     // ------------------------------------------------------------------ selection
 
@@ -219,6 +244,16 @@ class OnboardingViewModel @Inject constructor(
 
             result.fold(
                 onSuccess = { provider ->
+                    // 迪克模式：把引导里选的能力开关写为全局默认。
+                    if (current.persona == com.muhan.intelligence.domain.model.Persona.GEEK) {
+                        val prefs = settingsRepository.preferences.first()
+                        settingsRepository.updateGeneration(
+                            prefs.generation.copy(
+                                reasoningEnabled = current.advancedThinking,
+                                webSearchEnabled = current.advancedWebSearch,
+                            ),
+                        )
+                    }
                     settingsRepository.completeOnboarding()
                     _state.update {
                         it.copy(

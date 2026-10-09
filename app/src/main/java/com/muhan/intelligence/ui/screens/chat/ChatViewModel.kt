@@ -3,17 +3,23 @@ package com.muhan.intelligence.ui.screens.chat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.muhan.intelligence.data.local.AttachmentStore
+import com.muhan.intelligence.data.remote.RequestBodyFactory
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
+import com.muhan.intelligence.domain.model.ChatExtras
 import com.muhan.intelligence.domain.model.ChatMessage
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.GenerationSettings
+import com.muhan.intelligence.domain.model.ImageGenerationResult
+import com.muhan.intelligence.domain.model.MessageAttachment
 import com.muhan.intelligence.domain.model.MessageStatus
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.Role
 import com.muhan.intelligence.domain.model.StreamEvent
 import com.muhan.intelligence.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,14 +44,24 @@ data class ChatUiState(
     val isLoading: Boolean = true,
     val errorBanner: String? = null,
     val infoBanner: String? = null,
+    /** Attachments picked but not yet sent. */
+    val pendingAttachments: List<MessageAttachment> = emptyList(),
+    /** Per-request capability switches (deep thinking / web search / image mode). */
+    val extras: ChatExtras = ChatExtras(),
+    val imageMode: Boolean = false,
 ) {
     /** The user cannot send while a stream is in flight or nothing is configured. */
     val canSend: Boolean
-        get() = input.isNotBlank() && !isGenerating && activeProvider != null
+        get() = (input.isNotBlank() || pendingAttachments.isNotEmpty()) &&
+            !isGenerating && activeProvider != null
 
     val isEmptyConversation: Boolean get() = messages.isEmpty() && !isLoading
 
     val hasProvider: Boolean get() = activeProvider != null
+
+    /** Image-generation composer entry is only offered when a model is configured. */
+    val supportsImageGeneration: Boolean
+        get() = activeProvider?.supportsImageGeneration == true
 }
 
 @HiltViewModel
@@ -53,6 +69,7 @@ class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val providerRepository: ProviderRepository,
     private val settingsRepository: com.muhan.intelligence.data.repository.SettingsRepository,
+    private val attachmentStore: AttachmentStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -68,6 +85,9 @@ class ChatViewModel @Inject constructor(
     /** Coalesces DB writes while tokens stream in, to avoid hammering Disk I/O. */
     private var persistJob: Job? = null
 
+    /** Whether generation defaults have been seeded from settings at least once. */
+    private var extrasSeeded = false
+
     init {
         observeSettings()
         observeActiveProvider()
@@ -77,7 +97,23 @@ class ChatViewModel @Inject constructor(
     private fun observeSettings() {
         viewModelScope.launch {
             settingsRepository.preferences.collect { prefs ->
-                _uiState.update { it.copy(generation = prefs.generation) }
+                _uiState.update { state ->
+                    state.copy(generation = prefs.generation).let { seeded ->
+                        if (extrasSeeded) {
+                            seeded
+                        } else {
+                            // First emission seeds the composer toggles; afterwards the
+                            // user's per-chat choices win over the settings defaults.
+                            extrasSeeded = true
+                            seeded.copy(
+                                extras = ChatExtras(
+                                    thinkingEnabled = prefs.generation.reasoningEnabled,
+                                    webSearchEnabled = prefs.generation.webSearchEnabled,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -136,6 +172,39 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(errorBanner = null, infoBanner = null) }
     }
 
+    // ------------------------------------------------------------------ toggles
+
+    fun toggleThinking() = _uiState.update {
+        it.copy(extras = it.extras.copy(thinkingEnabled = !it.extras.thinkingEnabled))
+    }
+
+    fun toggleWebSearch() = _uiState.update {
+        it.copy(extras = it.extras.copy(webSearchEnabled = !it.extras.webSearchEnabled))
+    }
+
+    fun toggleImageMode() = _uiState.update { it.copy(imageMode = !it.imageMode) }
+
+    // -------------------------------------------------------------- attachments
+
+    /** Imports picked content Uris into private storage and queues them. */
+    fun addAttachments(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val imported = uris.mapNotNull { attachmentStore.import(it) }
+            if (imported.isEmpty()) {
+                _uiState.update { it.copy(errorBanner = "无法读取所选文件，请重试。") }
+                return@launch
+            }
+            _uiState.update { it.copy(pendingAttachments = it.pendingAttachments + imported) }
+        }
+    }
+
+    fun removeAttachment(id: String) = _uiState.update {
+        it.copy(pendingAttachments = it.pendingAttachments.filterNot { a -> a.id == id })
+    }
+
+    // ------------------------------------------------------------------ history
+
     /**
      * One-shot fetch backing the history drawer.
      *
@@ -178,7 +247,6 @@ class ChatViewModel @Inject constructor(
     fun editAndResend(messageId: String, newContent: String) {
         val state = _uiState.value
         val message = state.messages.firstOrNull { it.id == messageId } ?: return
-        val index = state.messages.indexOf(message)
 
         viewModelScope.launch {
             // Drop this message and every later one, then re-append the edited turn.
@@ -196,8 +264,13 @@ class ChatViewModel @Inject constructor(
 
     fun send() {
         val state = _uiState.value
+        if (state.imageMode) {
+            sendImageRequest()
+            return
+        }
+
         val text = state.input.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() && state.pendingAttachments.isEmpty()) return
 
         if (state.activeProvider == null) {
             _uiState.update { it.copy(errorBanner = "尚未配置模型服务，请先前往「设置 → 模型服务」添加。") }
@@ -206,20 +279,102 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             val conversationId = state.conversationId
+            val attachments = state.pendingAttachments
             val userMessage = ChatMessage(
                 id = UUID.randomUUID().toString(),
                 conversationId = conversationId,
                 role = Role.USER,
                 content = text,
+                attachments = attachments,
             )
             conversationRepository.appendMessage(userMessage)
-            conversationRepository.updateTitleFromFirstMessage(conversationId, text)
-            _uiState.update { it.copy(input = "") }
+            if (text.isNotBlank()) {
+                conversationRepository.updateTitleFromFirstMessage(conversationId, text)
+            }
+            _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
             val history = conversationRepository.loadHistory(conversationId)
             generate(history)
         }
     }
+
+    private fun sendImageRequest() {
+        val state = _uiState.value
+        val prompt = state.input.trim()
+        if (prompt.isEmpty()) return
+        if (!state.supportsImageGeneration) {
+            _uiState.update { it.copy(errorBanner = "请先在「设置 → 模型服务」中为当前服务填写生图模型。") }
+            return
+        }
+
+        viewModelScope.launch {
+            val conversationId = state.conversationId
+            conversationRepository.appendMessage(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    role = Role.USER,
+                    content = prompt,
+                ),
+            )
+            conversationRepository.updateTitleFromFirstMessage(conversationId, prompt)
+            _uiState.update { it.copy(input = "", isGenerating = true, errorBanner = null) }
+
+            val placeholderId = UUID.randomUUID().toString()
+            _uiState.update {
+                it.copy(
+                    messages = it.messages + ChatMessage(
+                        id = placeholderId,
+                        conversationId = conversationId,
+                        role = Role.ASSISTANT,
+                        content = "",
+                        status = MessageStatus.STREAMING,
+                        modelName = it.activeProvider?.imageModel,
+                    ),
+                )
+            }
+
+            val result = providerRepository.generateImage(
+                provider = state.activeProvider!!,
+                prompt = prompt,
+            )
+
+            result.fold(
+                onSuccess = { reply ->
+                    val imagePath = if (reply.isBase64) {
+                        saveBase64Image(reply.source)
+                    } else {
+                        reply.source
+                    }
+                    conversationRepository.appendMessage(
+                        ChatMessage(
+                            id = placeholderId,
+                            conversationId = conversationId,
+                            role = Role.ASSISTANT,
+                            content = reply.revisedPrompt.orEmpty(),
+                            status = MessageStatus.COMPLETE,
+                            modelName = state.activeProvider?.imageModel,
+                            imageUrl = imagePath,
+                        ),
+                    )
+                    conversationRepository.refreshMessageCount(conversationId)
+                },
+                onFailure = { error ->
+                    conversationRepository.deleteMessage(placeholderId)
+                    _uiState.update {
+                        it.copy(
+                            messages = it.messages.filterNot { m -> m.id == placeholderId },
+                            errorBanner = error.message ?: "生图失败，请稍后重试。",
+                        )
+                    }
+                },
+            )
+            _uiState.update { it.copy(isGenerating = false) }
+        }
+    }
+
+    /** Writes a base64 image body to private storage and returns the file path. */
+    private fun saveBase64Image(base64: String): String? = attachmentStore.saveBase64Image(base64)
 
     fun stopGenerating() {
         generationJob?.cancel()
@@ -245,6 +400,7 @@ class ChatViewModel @Inject constructor(
         val state = _uiState.value
         val provider = state.activeProvider ?: return
         val settings = state.generation
+        val extras = state.extras
 
         val assistantId = UUID.randomUUID().toString()
         val placeholder = ChatMessage(
@@ -272,27 +428,38 @@ class ChatViewModel @Inject constructor(
             var tokenCount: Int? = null
             var failureMessage: String? = null
 
-            providerRepository.streamCompletion(
-                provider = provider,
-                messages = outbound,
-                systemPrompt = settings.systemPrompt,
-                temperature = settings.temperature,
-                topP = settings.topP,
-                maxTokens = settings.maxTokens,
-            ).collect { event ->
-                when (event) {
-                    is StreamEvent.ContentDelta -> {
-                        content.append(event.text)
-                        publishStreaming(assistantId, content.toString(), reasoning.toString())
+            try {
+                providerRepository.streamCompletion(
+                    provider = provider,
+                    messages = outbound,
+                    systemPrompt = settings.systemPrompt,
+                    temperature = settings.temperature,
+                    topP = settings.topP,
+                    maxTokens = settings.maxTokens,
+                    thinkingEnabled = extras.thinkingEnabled,
+                    webSearchEnabled = extras.webSearchEnabled,
+                ).collect { event ->
+                    when (event) {
+                        is StreamEvent.ContentDelta -> {
+                            content.append(event.text)
+                            publishStreaming(assistantId, content.toString(), reasoning.toString())
+                        }
+                        is StreamEvent.ReasoningDelta -> {
+                            reasoning.append(event.text)
+                            publishStreaming(assistantId, content.toString(), reasoning.toString())
+                        }
+                        is StreamEvent.Usage -> tokenCount = event.promptTokens + event.completionTokens
+                        is StreamEvent.Completed -> Unit
+                        is StreamEvent.Failed -> failureMessage = event.message
                     }
-                    is StreamEvent.ReasoningDelta -> {
-                        reasoning.append(event.text)
-                        publishStreaming(assistantId, content.toString(), reasoning.toString())
-                    }
-                    is StreamEvent.Usage -> tokenCount = event.promptTokens + event.completionTokens
-                    is StreamEvent.Completed -> Unit
-                    is StreamEvent.Failed -> failureMessage = event.message
                 }
+            } catch (ce: CancellationException) {
+                // User pressed "stop" — rethrow so structured cancellation works.
+                throw ce
+            } catch (t: Throwable) {
+                // 0.1.0 crashed here: any exception escaping the flow (JSON, IO,
+                // provider quirks) had no handler and killed the whole process.
+                failureMessage = t.message ?: t.javaClass.simpleName
             }
 
             persistJob?.cancel()
@@ -359,33 +526,66 @@ class ChatViewModel @Inject constructor(
         if (persistJob?.isActive == true) return
         persistJob = viewModelScope.launch {
             delay(PERSIST_INTERVAL_MS)
-            conversationRepository.updateStreamingContent(id, content, reasoning)
+            runCatching { conversationRepository.updateStreamingContent(id, content, reasoning) }
         }
     }
 
     /**
      * Applies "send history" trimming: keeps the most recent turns that fit a
      * rough character budget, so long threads don't blow the context window.
+     *
+     * Images travel only with the newest user turn — re-sending every historical
+     * photo would be slow and expensive.
      */
     private fun buildOutboundMessages(
         history: List<ChatMessage>,
         settings: GenerationSettings,
-    ): List<Pair<Role, String>> {
+    ): List<RequestBodyFactory.OutboundMessage> {
         val usable = history
             .filter { it.role == Role.USER || it.role == Role.ASSISTANT }
-            .filter { it.content.isNotBlank() }
-            .map { it.role to it.content }
+            .map { it to attachmentText(it) }
+            .filter { (_, text) -> text.isNotBlank() }
 
-        if (!settings.sendHistory) return usable.takeLast(1)
+        if (!settings.sendHistory) return usable.takeLast(1).map { toOutbound(it, withImages = true) }
 
         var budget = CONTEXT_CHAR_BUDGET
-        val result = ArrayDeque<Pair<Role, String>>()
+        val result = ArrayDeque<Pair<ChatMessage, String>>()
         for (item in usable.asReversed()) {
             if (budget - item.second.length < 0 && result.isNotEmpty()) break
             budget -= item.second.length
             result.addFirst(item)
         }
-        return result.toList()
+
+        val newestUserId = history.lastOrNull { it.role == Role.USER }?.id
+        return result.toList().map { (message, text) ->
+            toOutbound(message to text, withImages = message.id == newestUserId)
+        }
+    }
+
+    private fun toOutbound(pair: Pair<ChatMessage, String>, withImages: Boolean): RequestBodyFactory.OutboundMessage {
+        val (message, text) = pair
+        val images = if (withImages) {
+            message.attachments.mapNotNull { attachmentStore.imageDataUrl(it) }
+        } else {
+            emptyList()
+        }
+        return RequestBodyFactory.OutboundMessage(role = message.role, text = text, imageDataUrls = images)
+    }
+
+    /** Inlines text-file attachments into the prompt; images are handed over separately. */
+    private fun attachmentText(message: ChatMessage): String {
+        if (message.attachments.isEmpty()) return message.content
+        val builder = StringBuilder(message.content)
+        message.attachments.forEach { attachment ->
+            if (attachment.isImage) return@forEach
+            val body = attachmentStore.readText(attachment)
+            if (body != null) {
+                builder.append("\n\n【附件：${attachment.name}】\n```\n").append(body).append("\n```")
+            } else {
+                builder.append("\n\n（附件 ${attachment.name} 无法作为文本读取，已跳过）")
+            }
+        }
+        return builder.toString()
     }
 
     private companion object {

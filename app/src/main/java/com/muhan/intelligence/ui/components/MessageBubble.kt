@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
@@ -130,12 +131,63 @@ private fun UserMessageBubble(
                     shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
                     modifier = Modifier.widthIn(max = 320.dp),
                 ) {
-                    SelectionContainer {
-                        Text(
-                            text = message.content,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                        )
+                    Column(Modifier.padding(6.dp)) {
+                        // Attached photos render above the caption inside the bubble.
+                        message.attachments.filter { it.isImage }.forEach { attachment ->
+                            coil.compose.AsyncImage(
+                                model = java.io.File(attachment.localPath),
+                                contentDescription = attachment.name,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier
+                                    .padding(bottom = 4.dp)
+                                    .fillMaxWidth()
+                                    .height(170.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
+                            )
+                        }
+                        if (message.content.isNotBlank()) {
+                            SelectionContainer {
+                                Text(
+                                    text = message.content,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Non-image attachments appear as chips under the bubble.
+                val fileAttachments = message.attachments.filterNot { it.isImage }
+                if (fileAttachments.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    fileAttachments.forEach { attachment ->
+                        Surface(
+                            color = scheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Description,
+                                    contentDescription = null,
+                                    tint = scheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = attachment.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 220.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(3.dp))
                     }
                 }
             }
@@ -255,6 +307,20 @@ private fun AssistantMessageBubble(
                 )
             }
 
+            message.isImageMessage -> {
+                // Image-model reply: the picture is the answer, caption goes below.
+                GeneratedImageViewer(source = message.imageUrl.orEmpty())
+                if (message.content.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    SelectionContainer {
+                        MarkdownText(
+                            markdown = message.content,
+                            baseStyle = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+
             showEmptyThinking -> {
                 ThinkingIndicator()
             }
@@ -290,6 +356,27 @@ private fun AssistantMessageBubble(
                 tint = scheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/** Displays a generated image, from either a local file path or a remote URL. */
+@Composable
+private fun GeneratedImageViewer(source: String) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        color = scheme.surfaceContainerLow,
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        coil.compose.AsyncImage(
+            model = if (source.startsWith("http")) source else java.io.File(source),
+            contentDescription = "生成的图片",
+            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp)
+                .padding(6.dp)
+                .clip(RoundedCornerShape(12.dp)),
+        )
     }
 }
 
