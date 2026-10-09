@@ -4,7 +4,7 @@
 
 **由你自己掌管 API Key 的原生 Android AI 对话应用**
 
-[![version](https://img.shields.io/badge/version-0.2.0-6D5BF6)](../../releases)
+[![version](https://img.shields.io/badge/version-0.2.0--Fix-6D5BF6)](../../releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)](https://developer.android.com/jetpack/compose)
@@ -69,12 +69,12 @@
 
 ## 下载
 
-前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0-release.apk` 直接安装。
+前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0Fix-release.apk` 直接安装。
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MuHan-Intelligence-0.2.0-release.apk` | 约 2.4 MB | 混淆压缩后的发布版 |
-| `MuHan-Intelligence-0.2.0-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
+| `MuHan-Intelligence-0.2.0Fix-release.apk` | 约 2.4 MB | 混淆压缩后的发布版 |
+| `MuHan-Intelligence-0.2.0Fix-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
 | `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
 
 核对下载完整性：

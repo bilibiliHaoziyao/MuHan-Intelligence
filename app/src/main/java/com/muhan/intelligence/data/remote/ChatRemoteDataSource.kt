@@ -85,6 +85,25 @@ class ChatRemoteDataSource @Inject constructor() {
             }
 
             override fun onResponse(call: Call, response: Response) {
+                // 0.2.0 Fix: 整个回调包一层兜底——此处任何未捕获异常都发生在
+                // OkHttp 调度线程，会直接杀死进程且 UI 层无法捕获。
+                runCatching { handleResponse(response) }
+                    .onFailure { e ->
+                        if (!finished) {
+                            finished = true
+                            trySend(
+                                StreamEvent.Failed(
+                                    ApiErrorMapper.describe(
+                                        e as? IOException ?: IOException(e.message ?: e.javaClass.simpleName),
+                                    ),
+                                ),
+                            )
+                        }
+                        close()
+                    }
+            }
+
+            private fun handleResponse(response: Response) {
                 response.use { res ->
                     if (!res.isSuccessful) {
                         val body = runCatching { res.body?.string() }.getOrNull()
@@ -138,11 +157,12 @@ class ChatRemoteDataSource @Inject constructor() {
                             finished = true
                             trySend(StreamEvent.Completed)
                         }
-                    } catch (e: IOException) {
+                    } catch (e: Throwable) {
                         if (!finished) {
                             finished = true
-                            // A truncated stream usually still delivered usable text;
-                            // surface it as completion instead of a hard failure.
+                            // 0.2.0 Fix: 不只 IOException——解析器/类型转换抛出的
+                            // RuntimeException 若逃逸到 OkHttp 回调线程会直接杀死进程。
+                            // 截断或异常的流通常已交付可用文本，按完成处理。
                             trySend(StreamEvent.Completed)
                         }
                     } finally {

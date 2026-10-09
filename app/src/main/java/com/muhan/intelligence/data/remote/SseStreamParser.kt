@@ -43,7 +43,7 @@ class SseStreamParser(
                 events += StreamEvent.Completed
                 continue
             }
-            parsePayload(payload)?.let { events += it }
+            parsePayloadSafely(payload)?.let { events += it }
         }
         return events
     }
@@ -54,8 +54,18 @@ class SseStreamParser(
         val payload = extractData(buffer.toString()) ?: return emptyList()
         buffer.clear()
         if (payload == "[DONE]") return listOf(StreamEvent.Completed)
-        return listOfNotNull(parsePayload(payload))
+        return listOfNotNull(parsePayloadSafely(payload))
     }
+
+    /**
+     * 0.2.0 Fix: `parsePayload` 内部使用 `.jsonObject` / `.jsonPrimitive` 强制访问，
+     * 遇到服务商返回类型不符的字段（如 `"delta":null`、错误字段为字符串）会抛
+     * IllegalArgumentException。该异常发生在 OkHttp 回调线程，UI 层的 try/catch
+     * 无法捕获，会直接杀死整个进程（0.1.0 以来「回答即闪退」的真正根因）。
+     * 这里兜底：任何解析异常都视为「该事件无法识别」并跳过，绝不向上抛。
+     */
+    private fun parsePayloadSafely(payload: String): StreamEvent? =
+        runCatching { parsePayload(payload) }.getOrNull()
 
     val completed: Boolean get() = sawDone
 

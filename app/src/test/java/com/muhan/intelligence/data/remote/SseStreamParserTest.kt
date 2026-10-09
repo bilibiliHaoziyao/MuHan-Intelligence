@@ -116,4 +116,48 @@ class SseStreamParserTest {
         val events = parser.feed(": keep-alive\n\n: ping\n\n")
         assertTrue(events.isEmpty())
     }
+
+    // 0.2.0 Fix 回归：类型不符的字段不得抛异常（曾在 OkHttp 线程杀死进程）
+
+    @Test
+    fun `delta 为 null 时不抛异常且跳过该事件`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        val events = parser.feed(
+            "data: {\"choices\":[{\"delta\":null,\"finish_reason\":null}]}\n\n" +
+                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n",
+        )
+        assertEquals("ok", events.filterIsInstance<StreamEvent.ContentDelta>().first().text)
+    }
+
+    @Test
+    fun `error 为字符串时不抛异常`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        val events = parser.feed("data: {\"error\":\"boom\"}\n\n")
+        // 无法提取可读信息，静默跳过而不是崩溃
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun `choices 元素非对象时不抛异常`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        val events = parser.feed("data: {\"choices\":[\"weird\"]}\n\n")
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun `usage 字段类型异常时不抛异常`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        // 类型访问失败 → 整个事件被安全跳过（真实流中 usage 独立成块，影响可忽略）
+        val events = parser.feed(
+            "data: {\"usage\":null,\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
+        )
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun `flush 遇到畸形事件不抛异常`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        parser.feed("data: {\"choices\":[{\"delta\":\"string-not-object\"}]}\n\n")
+        assertTrue(parser.flush().isEmpty())
+    }
 }

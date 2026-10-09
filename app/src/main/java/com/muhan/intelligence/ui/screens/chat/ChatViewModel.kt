@@ -278,23 +278,30 @@ class ChatViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            val conversationId = state.conversationId
-            val attachments = state.pendingAttachments
-            val userMessage = ChatMessage(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                role = Role.USER,
-                content = text,
-                attachments = attachments,
-            )
-            conversationRepository.appendMessage(userMessage)
-            if (text.isNotBlank()) {
-                conversationRepository.updateTitleFromFirstMessage(conversationId, text)
-            }
-            _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
+            try {
+                val conversationId = state.conversationId
+                val attachments = state.pendingAttachments
+                val userMessage = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    role = Role.USER,
+                    content = text,
+                    attachments = attachments,
+                )
+                conversationRepository.appendMessage(userMessage)
+                if (text.isNotBlank()) {
+                    conversationRepository.updateTitleFromFirstMessage(conversationId, text)
+                }
+                _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
-            val history = conversationRepository.loadHistory(conversationId)
-            generate(history)
+                val history = conversationRepository.loadHistory(conversationId)
+                generate(history)
+            } catch (t: Throwable) {
+                // 0.2.0 Fix: 发送链路任何异常只提示，不闪退。
+                _uiState.update {
+                    it.copy(errorBanner = t.message ?: "发送失败，请稍后重试。")
+                }
+            }
         }
     }
 
@@ -341,26 +348,32 @@ class ChatViewModel @Inject constructor(
 
             result.fold(
                 onSuccess = { reply ->
-                    val imagePath = if (reply.isBase64) {
-                        saveBase64Image(reply.source)
-                    } else {
-                        reply.source
+                    runCatching {
+                        val imagePath = if (reply.isBase64) {
+                            saveBase64Image(reply.source)
+                        } else {
+                            reply.source
+                        }
+                        conversationRepository.appendMessage(
+                            ChatMessage(
+                                id = placeholderId,
+                                conversationId = conversationId,
+                                role = Role.ASSISTANT,
+                                content = reply.revisedPrompt.orEmpty(),
+                                status = MessageStatus.COMPLETE,
+                                modelName = state.activeProvider?.imageModel,
+                                imageUrl = imagePath,
+                            ),
+                        )
+                        conversationRepository.refreshMessageCount(conversationId)
+                    }.onFailure { t ->
+                        _uiState.update {
+                            it.copy(errorBanner = t.message ?: "生图结果保存失败。")
+                        }
                     }
-                    conversationRepository.appendMessage(
-                        ChatMessage(
-                            id = placeholderId,
-                            conversationId = conversationId,
-                            role = Role.ASSISTANT,
-                            content = reply.revisedPrompt.orEmpty(),
-                            status = MessageStatus.COMPLETE,
-                            modelName = state.activeProvider?.imageModel,
-                            imageUrl = imagePath,
-                        ),
-                    )
-                    conversationRepository.refreshMessageCount(conversationId)
                 },
                 onFailure = { error ->
-                    conversationRepository.deleteMessage(placeholderId)
+                    runCatching { conversationRepository.deleteMessage(placeholderId) }
                     _uiState.update {
                         it.copy(
                             messages = it.messages.filterNot { m -> m.id == placeholderId },
@@ -420,8 +433,6 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-        val outbound = buildOutboundMessages(history, settings)
-
         generationJob = viewModelScope.launch {
             var content = StringBuilder()
             var reasoning = StringBuilder()
@@ -429,6 +440,9 @@ class ChatViewModel @Inject constructor(
             var failureMessage: String? = null
 
             try {
+                // 0.2.0 Fix: 出站构建（附件读取/base64 编码）也放进保护内——
+                // 此前它在外面，任何异常都会以未捕获形式杀死进程。
+                val outbound = buildOutboundMessages(history, settings)
                 providerRepository.streamCompletion(
                     provider = provider,
                     messages = outbound,
@@ -467,8 +481,10 @@ class ChatViewModel @Inject constructor(
             val finalReasoning = reasoning.toString()
 
             if (failureMessage != null && finalContent.isBlank()) {
-                conversationRepository.failMessage(assistantId, failureMessage!!)
-                conversationRepository.deleteMessage(assistantId)
+                runCatching {
+                    conversationRepository.failMessage(assistantId, failureMessage!!)
+                    conversationRepository.deleteMessage(assistantId)
+                }
                 _uiState.update {
                     it.copy(
                         isGenerating = false,
@@ -477,13 +493,15 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             } else {
-                conversationRepository.finishMessage(
-                    messageId = assistantId,
-                    content = finalContent,
-                    reasoning = finalReasoning,
-                    tokenCount = tokenCount,
-                )
-                conversationRepository.refreshMessageCount(state.conversationId)
+                runCatching {
+                    conversationRepository.finishMessage(
+                        messageId = assistantId,
+                        content = finalContent,
+                        reasoning = finalReasoning,
+                        tokenCount = tokenCount,
+                    )
+                    conversationRepository.refreshMessageCount(state.conversationId)
+                }
                 _uiState.update {
                     it.copy(
                         isGenerating = false,
