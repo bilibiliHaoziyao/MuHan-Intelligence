@@ -65,7 +65,9 @@ class SseStreamParser(
      * 这里兜底：任何解析异常都视为「该事件无法识别」并跳过，绝不向上抛。
      */
     private fun parsePayloadSafely(payload: String): StreamEvent? =
-        runCatching { parsePayload(payload) }.getOrNull()    val completed: Boolean get() = sawDone
+        runCatching { parsePayload(payload) }.getOrNull()
+
+    val completed: Boolean get() = sawDone
 
     /** Returns (indexOfBoundary, nextIndex) for `\n\n` or `\r\n\r\n`. */
     private fun findBoundary(sb: StringBuilder): Pair<Int, Int>? {

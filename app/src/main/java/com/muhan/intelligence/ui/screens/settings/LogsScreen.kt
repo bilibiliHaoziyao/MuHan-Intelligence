@@ -48,9 +48,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 诊断日志（0.2.0 Fix2）。
+ * 诊断日志（0.3.0）。
  *
- * 列出 warn 及以上级别的历史日志文件（含崩溃记录），支持查看内容、
+ * 列出 INFO 及以上级别的历史日志文件（含崩溃记录），支持查看内容、
  * 通过邮件发送至反馈邮箱、一键清空。
  */
 @Composable
@@ -72,7 +72,7 @@ fun LogsScreen(
         SettingsTopBar(
             title = "诊断日志",
             onBack = onBack,
-            subtitle = "警告及以上级别 · 崩溃记录 · 保存于内部存储 ${LogRepository.LOG_DIR_NAME}",
+            subtitle = "INFO 及以上级别 · 崩溃记录 · 保存于内部存储 ${LogRepository.LOG_DIR_NAME}",
         )
 
         if (files.isEmpty()) {

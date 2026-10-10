@@ -153,13 +153,20 @@ class ChatViewModel @Inject constructor(
                 .catch { e ->
                     _uiState.update { it.copy(isLoading = false, errorBanner = e.message) }
                 }
-                .collect { messages ->
-                    // While streaming, the in-memory bubble is authoritative because
-                    // DB rows lag behind the token stream by design.
-                    if (_uiState.value.isGenerating) {
-                        _uiState.update { it.copy(isLoading = false) }
-                    } else {
-                        _uiState.update { it.copy(messages = messages, isLoading = false) }
+                .collect { dbMessages ->
+                    _uiState.update { state ->
+                        if (state.isGenerating) {
+                            // 流式进行中：内存气泡是唯一真相，DB 写入滞后，直接丢弃以免覆盖。
+                            state.copy(isLoading = false)
+                        } else {
+                            // 0.3.0：逐条保留「更长的正文」。刚完成的回复可能在内存中比
+                            // DB 快照更新，若用较旧的 DB 内容覆盖，回答会被截断甚至消失。
+                            val merged = dbMessages.map { db ->
+                                val mem = state.messages.firstOrNull { it.id == db.id }
+                                if (mem != null && mem.content.length > db.content.length) mem else db
+                            }
+                            state.copy(messages = merged, isLoading = false)
+                        }
                     }
                 }
         }
@@ -293,6 +300,7 @@ class ChatViewModel @Inject constructor(
                 if (text.isNotBlank()) {
                     conversationRepository.updateTitleFromFirstMessage(conversationId, text)
                 }
+                logRepository.info("Chat", "用户发送消息，含 ${attachments.size} 个附件")
                 _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
                 val history = conversationRepository.loadHistory(conversationId)
@@ -394,6 +402,8 @@ class ChatViewModel @Inject constructor(
         generationJob?.cancel()
         generationJob = null
 
+        logRepository.info("Chat", "用户手动停止生成")
+
         val state = _uiState.value
         val streaming = state.messages.lastOrNull() ?: return
         viewModelScope.launch {
@@ -433,6 +443,8 @@ class ChatViewModel @Inject constructor(
                 errorBanner = null,
             )
         }
+
+        logRepository.info("Chat", "开始生成回复，服务商=${provider.displayName}，模型=${provider.modelName}")
 
         generationJob = viewModelScope.launch {
             var content = StringBuilder()

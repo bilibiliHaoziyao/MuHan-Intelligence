@@ -173,6 +173,9 @@ data class AppPreferences(
     val generation: GenerationSettings = GenerationSettings(),
     /** 用户体验改善计划（0.2.0 Fix2，目前仅 UI 开关）。 */
     val uxImprovement: Boolean = true,
+
+    /** 是否已尝试申请存储权限（0.3.0，避免每次启动重复弹窗）。 */
+    val storagePermissionRequested: Boolean = false,
 )
 
 /** Streaming events emitted while a completion is in flight. */

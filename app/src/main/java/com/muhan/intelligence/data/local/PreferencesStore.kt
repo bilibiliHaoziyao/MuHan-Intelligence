@@ -40,6 +40,7 @@ class PreferencesStore @Inject constructor(
         val reasoningEnabled = booleanPreferencesKey("reasoning_enabled")
         val webSearchEnabled = booleanPreferencesKey("web_search_enabled")
         val uxImprovement = booleanPreferencesKey("ux_improvement")
+        val storagePermissionRequested = booleanPreferencesKey("storage_permission_requested")
     }
 
     val preferences: Flow<AppPreferences> = context.preferencesDataStore.data.map { prefs ->
@@ -59,6 +60,7 @@ class PreferencesStore @Inject constructor(
                 webSearchEnabled = prefs[Keys.webSearchEnabled] ?: false,
             ),
             uxImprovement = prefs[Keys.uxImprovement] ?: true,
+            storagePermissionRequested = prefs[Keys.storagePermissionRequested] ?: false,
         )
     }
 
@@ -76,6 +78,10 @@ class PreferencesStore @Inject constructor(
 
     suspend fun setUxImprovement(enabled: Boolean) {
         context.preferencesDataStore.edit { it[Keys.uxImprovement] = enabled }
+    }
+
+    suspend fun setStoragePermissionRequested(requested: Boolean) {
+        context.preferencesDataStore.edit { it[Keys.storagePermissionRequested] = requested }
     }
 
     suspend fun updateGeneration(settings: GenerationSettings) {

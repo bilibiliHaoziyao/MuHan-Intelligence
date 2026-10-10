@@ -14,9 +14,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 轻量本地日志（0.2.0 Fix2）。
+ * 轻量本地日志（0.3.0）。
  *
- * 只记录警告及以上级别（WARN / ERROR / FATAL），写入应用内部存储
+ * 记录 INFO 及以上级别（INFO / WARN / ERROR / FATAL），写入应用内部存储
  * `filesDir/MuHan/logs/muhan-YYYY-MM-DD.log`。崩溃通过默认
  * UncaughtExceptionHandler 捕获：先同步落盘再交还系统，保证「崩溃了也有日志」。
  *
@@ -53,6 +53,9 @@ class LogRepository @Inject constructor(
     fun clearLogs() {
         runCatching { listLogFiles().forEach { it.delete() } }
     }
+
+    fun info(tag: String, message: String, throwable: Throwable? = null) =
+        write("INFO", tag, message, throwable)
 
     fun warn(tag: String, message: String, throwable: Throwable? = null) =
         write("WARN", tag, message, throwable)
@@ -93,8 +96,9 @@ class LogRepository @Inject constructor(
             }
             append('\n')
         }
-        // Logcat 同步输出，便于 adb 调试；内部日志只留 warn+。
+        // Logcat 同步输出，便于 adb 调试；内部日志保留 INFO 及以上。
         when (level) {
+            "INFO" -> Log.i("MuHan/$tag", message, throwable)
             "WARN" -> Log.w("MuHan/$tag", message, throwable)
             else -> Log.e("MuHan/$tag", message, throwable)
         }

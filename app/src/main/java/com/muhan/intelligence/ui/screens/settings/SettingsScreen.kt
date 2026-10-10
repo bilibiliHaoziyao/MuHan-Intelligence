@@ -187,7 +187,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Outlined.Info,
                     title = "用户体验改善计划",
-                    subtitle = "帮助我们改进产品（当前版本仅记录本地诊断日志）",
+                    subtitle = "帮助我们改进产品（诊断信息与崩溃日志，可随时关闭）",
                     checked = state.preferences.uxImprovement,
                     onCheckedChange = viewModel::setUxImprovement,
                 )
@@ -195,7 +195,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Outlined.Storage,
                     title = "查看日志",
-                    subtitle = "警告及以上级别与崩溃记录，可用邮件发送",
+                    subtitle = "INFO 及以上级别与崩溃记录，可用邮件发送",
                     trailing = Icons.Outlined.ChevronRight,
                     onClick = onOpenLogs,
                 )

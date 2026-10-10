@@ -1,9 +1,12 @@
 package com.muhan.intelligence
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +19,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.muhan.intelligence.data.local.LogRepository
+import com.muhan.intelligence.data.local.PreferencesStore
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
 import com.muhan.intelligence.domain.model.ThemeMode
@@ -28,6 +34,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -85,14 +92,61 @@ class StartupViewModel @Inject constructor(
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject lateinit var preferencesStore: PreferencesStore
+
+    @Inject lateinit var logRepository: LogRepository
+
+    /**
+     * 0.3.0：首次启动申请存储权限（读取图片附件 / 导出日志到外部存储时用到）。
+     * 仅弹一次，之后由 [PreferencesStore] 标记，不再打扰用户。
+     */
+    private val storagePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        val granted = result.values.all { it }
+        logRepository.info(
+            "Permission",
+            "存储权限申请结果：${if (granted) "已授予" else "被拒绝"}",
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        requestStoragePermissionIfNeeded()
+
         setContent {
             MuHanApp()
         }
+    }
+
+    private fun requestStoragePermissionIfNeeded() {
+        lifecycleScope.launch {
+            val prefs = preferencesStore.preferences.first()
+            if (prefs.storagePermissionRequested) return@launch
+
+            val needed = storagePermissionsForSdk()
+            val allGranted = needed.all {
+                checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (!allGranted) {
+                logRepository.info("Permission", "首次启动申请存储权限")
+                storagePermissionLauncher.launch(needed.toTypedArray())
+            }
+            preferencesStore.setStoragePermissionRequested(true)
+        }
+    }
+
+    private fun storagePermissionsForSdk(): List<String> = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+            listOf(Manifest.permission.READ_MEDIA_IMAGES)
+        else ->
+            listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            )
     }
 }
 

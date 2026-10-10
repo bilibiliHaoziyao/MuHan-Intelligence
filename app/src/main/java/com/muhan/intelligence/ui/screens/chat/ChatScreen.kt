@@ -398,8 +398,15 @@ private fun MessageList(
         }.collect { atBottom -> autoFollow = atBottom }
     }
 
+    val lastMessage = messages.lastOrNull()
     val lastIndex = messages.lastIndex
-    LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
+    // 0.3.0：同时关注正文与思考过程的长度变化——深度思考阶段只有
+    // reasoningContent 在增长，若只盯 content 就不会跟随滚动。
+    LaunchedEffect(
+        messages.size,
+        lastMessage?.content?.length,
+        lastMessage?.reasoningContent?.length,
+    ) {
         if (autoFollow && lastIndex >= 0) {
             listState.animateScrollToItem(lastIndex)
         }

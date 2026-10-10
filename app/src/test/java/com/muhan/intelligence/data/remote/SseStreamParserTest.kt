@@ -176,4 +176,28 @@ class SseStreamParserTest {
         parser.feed("data: {\"choices\":[{\"delta\":\"string-not-object\"}]}\n\n")
         assertTrue(parser.flush().isEmpty())
     }
+
+    // 0.3.0 回归：完整真实形态的多块流应当被正确累计，且 completed 标记置位。
+    // 此前第 68 行 `getOrNull()` 与 `val completed` 被合并到同一行导致无法编译，
+    // 该测试锁定「整段流解析 + 结束标记」这一正常链路不被破坏。
+    @Test
+    fun `完整真实流累计内容并置位完成标记`() {
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        val stream = buildString {
+            append("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"让我想想\"},\"usage\":null}]}\n\n")
+            append("data: {\"choices\":[{\"delta\":{\"content\":\"答案是\"},\"usage\":null}]}\n\n")
+            append("data: {\"choices\":[{\"delta\":{\"content\":\"42\"},\"usage\":null}]}\n\n")
+            append("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5}}\n\n")
+            append("data: [DONE]\n\n")
+        }
+        val events = parser.feed(stream) + parser.flush()
+
+        val reasoning = events.filterIsInstance<StreamEvent.ReasoningDelta>().joinToString("") { it.text }
+        val content = events.filterIsInstance<StreamEvent.ContentDelta>().joinToString("") { it.text }
+        assertEquals("让我想想", reasoning)
+        assertEquals("答案是42", content)
+        assertEquals(3, events.filterIsInstance<StreamEvent.Usage>().first().promptTokens)
+        assertTrue(parser.completed)
+        assertTrue(events.last() is StreamEvent.Completed)
+    }
 }
