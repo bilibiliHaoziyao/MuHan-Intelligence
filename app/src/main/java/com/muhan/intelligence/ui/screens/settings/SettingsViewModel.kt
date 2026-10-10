@@ -39,6 +39,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val providerRepository: ProviderRepository,
     private val conversationRepository: ConversationRepository,
+    private val logRepository: com.muhan.intelligence.data.local.LogRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -70,6 +71,21 @@ class SettingsViewModel @Inject constructor(
 
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setDynamicColor(enabled) }
+    }
+
+    fun setUxImprovement(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setUxImprovement(enabled) }
+    }
+
+    // ------------------------------------------------------- 诊断日志 (0.2.0 Fix2)
+
+    fun logFiles(): List<java.io.File> = logRepository.listLogFiles()
+
+    fun readLog(file: java.io.File): String = logRepository.readLog(file)
+
+    fun clearLogs() {
+        logRepository.clearLogs()
+        _state.update { it.copy(message = "已清空全部日志") }
     }
 
     fun updateGeneration(settings: GenerationSettings) {

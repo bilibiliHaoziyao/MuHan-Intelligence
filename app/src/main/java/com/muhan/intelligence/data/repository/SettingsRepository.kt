@@ -23,6 +23,8 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setDynamicColor(enabled: Boolean) = store.setDynamicColor(enabled)
 
+    suspend fun setUxImprovement(enabled: Boolean) = store.setUxImprovement(enabled)
+
     suspend fun updateGeneration(settings: GenerationSettings) = store.updateGeneration(settings)
 
     suspend fun resetGeneration() = store.resetGeneration()

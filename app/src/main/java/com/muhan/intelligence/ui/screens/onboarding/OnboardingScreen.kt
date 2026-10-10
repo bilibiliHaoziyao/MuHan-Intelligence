@@ -203,63 +203,84 @@ private fun WizardHeader(
 private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel) {
     val scheme = MaterialTheme.colorScheme
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        BrandMark(size = 76.dp, animated = true)
-        Spacer(Modifier.height(18.dp))
-        Text(
-            text = "欢迎使用慕寒智能",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-            color = scheme.onSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = "开始之前，先告诉我们你是哪种玩家",
-            style = MaterialTheme.typography.bodyMedium,
-            color = scheme.onSurfaceVariant,
-        )
+    // 0.2.0 Fix2：方屏（手表/折叠屏内屏）适配——高度紧张时压缩间距并允许滚动。
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxHeight < 500.dp
 
-        Spacer(Modifier.height(30.dp))
-
-        PersonaCard(
-            title = "我是菜鸟",
-            description = "第一次用 AI 应用？选这个。\n引导会非常简单：选服务 → 贴 Key → 完成，全程不需要懂任何技术名词。",
-            selected = state.persona == com.muhan.intelligence.domain.model.Persona.ROOKIE,
-            emoji = "🐣",
-            onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.ROOKIE) },
-        )
-        Spacer(Modifier.height(12.dp))
-        PersonaCard(
-            title = "我是迪克",
-            description = "折腾过 API、想要完全掌控？选这个。\n保留完整配置流程，额外提供协议选择、模型切换与深度思考 / 联网搜索等高级选项。",
-            selected = state.persona == com.muhan.intelligence.domain.model.Persona.GEEK,
-            emoji = "🛠️",
-            onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.GEEK) },
-        )
-
-        if (state.errorMessage != null) {
-            Spacer(Modifier.height(10.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = if (compact) 16.dp else 28.dp)
+                .padding(vertical = if (compact) 4.dp else 0.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (!compact) {
+                BrandMark(size = 76.dp, animated = true)
+                Spacer(Modifier.height(18.dp))
+            }
             Text(
-                text = state.errorMessage,
+                text = "欢迎使用慕寒智能",
+                style = if (compact) {
+                    MaterialTheme.typography.titleLarge
+                } else {
+                    MaterialTheme.typography.headlineMedium
+                },
+                color = scheme.onSurface,
+            )
+            Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
+            Text(
+                text = "开始之前，先告诉我们你是哪种玩家",
                 style = MaterialTheme.typography.bodySmall,
-                color = scheme.error,
-                textAlign = TextAlign.Center,
+                color = scheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(if (compact) 12.dp else 30.dp))
+
+            PersonaCard(
+                title = "我是菜鸟",
+                description = if (compact) {
+                    "第一次用？选这个，全程不用懂技术。"
+                } else {
+                    "第一次用 AI 应用？选这个。\n引导会非常简单：选服务 → 贴 Key → 完成，全程不需要懂任何技术名词。"
+                },
+                selected = state.persona == com.muhan.intelligence.domain.model.Persona.ROOKIE,
+                emoji = "🐣",
+                onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.ROOKIE) },
+            )
+            Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+            PersonaCard(
+                title = "我是迪克",
+                description = if (compact) {
+                    "折腾过 API？保留全部高级选项。"
+                } else {
+                    "折腾过 API、想要完全掌控？选这个。\n保留完整配置流程，额外提供协议选择、模型切换与深度思考 / 联网搜索等高级选项。"
+                },
+                selected = state.persona == com.muhan.intelligence.domain.model.Persona.GEEK,
+                emoji = "🛠️",
+                onClick = { viewModel.selectPersona(com.muhan.intelligence.domain.model.Persona.GEEK) },
+            )
+
+            if (state.errorMessage != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = state.errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.error,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            Spacer(Modifier.height(if (compact) 12.dp else 26.dp))
+
+            PrimaryButton(
+                text = "继续",
+                onClick = viewModel::next,
+                enabled = state.persona != null,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-
-        Spacer(Modifier.height(26.dp))
-
-        PrimaryButton(
-            text = "继续",
-            onClick = viewModel::next,
-            enabled = state.persona != null,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -905,6 +926,19 @@ private fun VerifyStep(
                     onClick = viewModel::testConnection,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // 0.2.0 Fix2：允许跳过测试连接——配置会在使用时自然验证。
+                Spacer(Modifier.height(6.dp))
+                TextButton(
+                    onClick = { viewModel.finish(onDone) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "跳过测试连接，直接完成",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
             }
 
             Spacer(Modifier.height(24.dp))
@@ -1057,7 +1091,9 @@ private fun DoneStep(onEnter: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp),
+            // 0.2.0 Fix2：方屏设备可滚动。
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

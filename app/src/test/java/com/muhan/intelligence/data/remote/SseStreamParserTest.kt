@@ -147,11 +147,27 @@ class SseStreamParserTest {
     @Test
     fun `usage 字段类型异常时不抛异常`() {
         val parser = SseStreamParser(ApiFlavor.OPENAI)
-        // 类型访问失败 → 整个事件被安全跳过（真实流中 usage 独立成块，影响可忽略）
+        // 0.2.0 Fix2：usage:null 安全忽略，同 chunk 内的内容仍然交付
         val events = parser.feed(
             "data: {\"usage\":null,\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
         )
-        assertTrue(events.isEmpty())
+        assertEquals("hi", events.filterIsInstance<StreamEvent.ContentDelta>().first().text)
+    }
+
+    @Test
+    fun `DeepSeek 中途 usage null 不吞内容`() {
+        // DeepSeek 真实流形态：除最后一块外每个 chunk 都带 "usage":null。
+        // 0.2.0 Fix 曾因此丢弃全部内容（表现为模型不回复）。
+        val parser = SseStreamParser(ApiFlavor.OPENAI)
+        val events = parser.feed(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"你\"},\"usage\":null}]}\n\n" +
+                "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"usage\":null}]}\n\n" +
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2}}\n\n" +
+                "data: [DONE]\n\n",
+        )
+        assertEquals("你好", events.filterIsInstance<StreamEvent.ContentDelta>().joinToString("") { it.text })
+        assertEquals(1, events.filterIsInstance<StreamEvent.Usage>().size)
+        assertTrue(events.last() is StreamEvent.Completed)
     }
 
     @Test

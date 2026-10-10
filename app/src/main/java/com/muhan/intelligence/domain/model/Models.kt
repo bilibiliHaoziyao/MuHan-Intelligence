@@ -171,6 +171,8 @@ data class AppPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
     val generation: GenerationSettings = GenerationSettings(),
+    /** 用户体验改善计划（0.2.0 Fix2，目前仅 UI 开关）。 */
+    val uxImprovement: Boolean = true,
 )
 
 /** Streaming events emitted while a completion is in flight. */

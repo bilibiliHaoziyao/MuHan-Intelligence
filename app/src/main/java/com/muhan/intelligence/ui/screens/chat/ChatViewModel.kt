@@ -70,6 +70,7 @@ class ChatViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val settingsRepository: com.muhan.intelligence.data.repository.SettingsRepository,
     private val attachmentStore: AttachmentStore,
+    private val logRepository: com.muhan.intelligence.data.local.LogRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -464,7 +465,10 @@ class ChatViewModel @Inject constructor(
                         }
                         is StreamEvent.Usage -> tokenCount = event.promptTokens + event.completionTokens
                         is StreamEvent.Completed -> Unit
-                        is StreamEvent.Failed -> failureMessage = event.message
+                        is StreamEvent.Failed -> {
+                            failureMessage = event.message
+                            logRepository.warn("Chat", "服务商返回失败事件：${event.message}")
+                        }
                     }
                 }
             } catch (ce: CancellationException) {
@@ -474,6 +478,7 @@ class ChatViewModel @Inject constructor(
                 // 0.1.0 crashed here: any exception escaping the flow (JSON, IO,
                 // provider quirks) had no handler and killed the whole process.
                 failureMessage = t.message ?: t.javaClass.simpleName
+                logRepository.warn("Chat", "流式生成失败：$failureMessage", t)
             }
 
             persistJob?.cancel()
@@ -493,6 +498,13 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             } else {
+                // 0.2.0 Fix2：空回复写入日志，便于诊断「模型不回复」类问题。
+                if (finalContent.isBlank() && finalReasoning.isBlank()) {
+                    logRepository.warn(
+                        "Chat",
+                        "本次生成结束但内容为空（failure=$failureMessage，model=${provider.modelName}）",
+                    )
+                }
                 runCatching {
                     conversationRepository.finishMessage(
                         messageId = assistantId,

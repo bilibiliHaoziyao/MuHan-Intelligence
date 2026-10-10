@@ -31,7 +31,9 @@ import javax.inject.Singleton
  * connection handshake should still fail fast.
  */
 @Singleton
-class ChatRemoteDataSource @Inject constructor() {
+class ChatRemoteDataSource @Inject constructor(
+    private val logRepository: com.muhan.intelligence.data.local.LogRepository,
+) {
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
@@ -77,6 +79,7 @@ class ChatRemoteDataSource @Inject constructor() {
 
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                logRepository.warn("Net", "请求失败：${call.request().url}", e)
                 if (!finished) {
                     finished = true
                     trySend(StreamEvent.Failed(ApiErrorMapper.describe(e)))
@@ -105,8 +108,9 @@ class ChatRemoteDataSource @Inject constructor() {
 
             private fun handleResponse(response: Response) {
                 response.use { res ->
-                    if (!res.isSuccessful) {
-                        val body = runCatching { res.body?.string() }.getOrNull()
+                if (!res.isSuccessful) {
+                    val body = runCatching { res.body?.string() }.getOrNull()
+                    logRepository.warn("Net", "HTTP ${res.code} @ ${res.request.url} body=${body?.take(500)}")
                         trySend(
                             StreamEvent.Failed(
                                 ApiErrorMapper.describe(
@@ -158,6 +162,7 @@ class ChatRemoteDataSource @Inject constructor() {
                             trySend(StreamEvent.Completed)
                         }
                     } catch (e: Throwable) {
+                        logRepository.warn("Net", "读流异常（${e.javaClass.simpleName}）：${e.message}")
                         if (!finished) {
                             finished = true
                             // 0.2.0 Fix: 不只 IOException——解析器/类型转换抛出的

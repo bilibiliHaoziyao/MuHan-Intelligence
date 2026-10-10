@@ -60,6 +60,7 @@ fun SettingsScreen(
     onOpenProviders: () -> Unit,
     onOpenGeneration: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenLogs: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -174,6 +175,29 @@ fun SettingsScreen(
                     title = "重新运行新手引导",
                     subtitle = "再次查看设置向导",
                     onClick = viewModel::restartOnboarding,
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // ---------------- Diagnostics ----------------
+            SectionLabel("诊断")
+            Spacer(Modifier.height(8.dp))
+            SettingsCard {
+                SwitchRow(
+                    icon = Icons.Outlined.Info,
+                    title = "用户体验改善计划",
+                    subtitle = "帮助我们改进产品（当前版本仅记录本地诊断日志）",
+                    checked = state.preferences.uxImprovement,
+                    onCheckedChange = viewModel::setUxImprovement,
+                )
+                Divider()
+                SettingsRow(
+                    icon = Icons.Outlined.Storage,
+                    title = "查看日志",
+                    subtitle = "警告及以上级别与崩溃记录，可用邮件发送",
+                    trailing = Icons.Outlined.ChevronRight,
+                    onClick = onOpenLogs,
                 )
             }
 

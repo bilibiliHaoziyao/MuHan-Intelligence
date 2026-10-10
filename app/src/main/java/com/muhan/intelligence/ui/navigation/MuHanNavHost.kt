@@ -17,6 +17,7 @@ import com.muhan.intelligence.ui.screens.chat.ChatScreen
 import com.muhan.intelligence.ui.screens.onboarding.OnboardingScreen
 import com.muhan.intelligence.ui.screens.settings.AboutScreen
 import com.muhan.intelligence.ui.screens.settings.GenerationSettingsScreen
+import com.muhan.intelligence.ui.screens.settings.LogsScreen
 import com.muhan.intelligence.ui.screens.settings.ProviderEditorScreen
 import com.muhan.intelligence.ui.screens.settings.ProviderListScreen
 import com.muhan.intelligence.ui.screens.settings.SettingsScreen
@@ -94,7 +95,12 @@ fun MuHanNavHost(
                 onOpenProviders = { navController.navigate(Routes.PROVIDERS) },
                 onOpenGeneration = { navController.navigate(Routes.GENERATION) },
                 onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                onOpenLogs = { navController.navigate(Routes.LOGS) },
             )
+        }
+
+        composable(Routes.LOGS) {
+            LogsScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.PROVIDERS) {

@@ -65,9 +65,7 @@ class SseStreamParser(
      * 这里兜底：任何解析异常都视为「该事件无法识别」并跳过，绝不向上抛。
      */
     private fun parsePayloadSafely(payload: String): StreamEvent? =
-        runCatching { parsePayload(payload) }.getOrNull()
-
-    val completed: Boolean get() = sawDone
+        runCatching { parsePayload(payload) }.getOrNull()    val completed: Boolean get() = sawDone
 
     /** Returns (indexOfBoundary, nextIndex) for `\n\n` or `\r\n\r\n`. */
     private fun findBoundary(sb: StringBuilder): Pair<Int, Int>? {
@@ -98,8 +96,9 @@ class SseStreamParser(
         val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
 
         // Some providers signal failures with an inline error object mid-stream.
-        root["error"]?.let { err ->
-            val msg = err.jsonObject["message"]?.jsonPrimitive?.contentOrNull
+        // 0.2.0 Fix2: error 可能是字符串/数组等任意类型，逐字段安全访问。
+        (root["error"] as? JsonObject)?.let { err ->
+            val msg = (err["message"] as? JsonPrimitive)?.contentOrNull
             if (!msg.isNullOrBlank()) return StreamEvent.Failed(msg)
         }
 
@@ -111,26 +110,29 @@ class SseStreamParser(
     }
 
     private fun parseOpenAi(root: JsonObject): StreamEvent? {
+        // 0.2.0 Fix2: DeepSeek 等服务商在回复中途的每个 chunk 都会带 "usage":null，
+        // 此前 usageOf() 的 .jsonObject 强制访问会抛异常导致整个内容事件被丢弃
+        // （表现为「API 连通但模型不回复」）。所有字段访问改为安全转换。
         usageOf(root)?.let { usage ->
-            val prompt = usage["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-            val completion = usage["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+            val prompt = (usage["prompt_tokens"] as? JsonPrimitive)?.intOrNull ?: 0
+            val completion = (usage["completion_tokens"] as? JsonPrimitive)?.intOrNull ?: 0
             if (prompt > 0 || completion > 0) return StreamEvent.Usage(prompt, completion)
         }
 
         val choices = root["choices"] as? JsonArray ?: return null
-        val first = choices.firstOrNull()?.jsonObject ?: return null
-        val finish = first["finish_reason"]?.jsonPrimitive?.contentOrNull
-        val delta = first["delta"]?.jsonObject
+        val first = choices.firstOrNull() as? JsonObject ?: return null
+        val finish = (first["finish_reason"] as? JsonPrimitive)?.contentOrNull
+        val delta = first["delta"] as? JsonObject
 
         if (delta != null) {
             reasoning(delta)?.let { return StreamEvent.ReasoningDelta(it) }
-            val text = delta["content"]?.jsonPrimitive?.contentOrNull
+            val text = (delta["content"] as? JsonPrimitive)?.contentOrNull
             if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
         }
 
         // Non-streaming shape: `message.content`
-        first["message"]?.jsonObject?.let { msg ->
-            val text = msg["content"]?.jsonPrimitive?.contentOrNull
+        (first["message"] as? JsonObject)?.let { msg ->
+            val text = (msg["content"] as? JsonPrimitive)?.contentOrNull
             if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
         }
 
@@ -139,38 +141,39 @@ class SseStreamParser(
     }
 
     private fun reasoning(delta: JsonObject): String? {
-        delta["reasoning_content"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
-        delta["reasoning"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
-        delta["thinking"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-            ?.takeIf { it.isNotEmpty() }?.let { return it }
+        (delta["reasoning_content"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
+        (delta["reasoning"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
+        (delta["thinking"] as? JsonObject)?.get("content")?.let { c ->
+            (c as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
         return null
     }
 
     private fun parseAnthropic(root: JsonObject): StreamEvent? {
-        when (root["type"]?.jsonPrimitive?.contentOrNull) {
+        when ((root["type"] as? JsonPrimitive)?.contentOrNull) {
             "content_block_delta" -> {
-                val delta = root["delta"]?.jsonObject ?: return null
-                when (delta["type"]?.jsonPrimitive?.contentOrNull) {
+                val delta = root["delta"] as? JsonObject ?: return null
+                when ((delta["type"] as? JsonPrimitive)?.contentOrNull) {
                     "thinking_delta" -> {
-                        val t = delta["thinking"]?.jsonPrimitive?.contentOrNull
+                        val t = (delta["thinking"] as? JsonPrimitive)?.contentOrNull
                         if (!t.isNullOrEmpty()) return StreamEvent.ReasoningDelta(t)
                     }
                     "text_delta" -> {
-                        val t = delta["text"]?.jsonPrimitive?.contentOrNull
+                        val t = (delta["text"] as? JsonPrimitive)?.contentOrNull
                         if (!t.isNullOrEmpty()) return StreamEvent.ContentDelta(t)
                     }
                 }
                 return null
             }
             "message_delta" -> {
-                val usage = root["usage"]?.jsonObject
-                val out = usage?.get("output_tokens")?.jsonPrimitive?.intOrNull ?: 0
+                val usage = root["usage"] as? JsonObject
+                val out = (usage?.get("output_tokens") as? JsonPrimitive)?.intOrNull ?: 0
                 if (out > 0) return StreamEvent.Usage(0, out)
                 return null
             }
             "message_stop" -> return StreamEvent.Completed
             "error" -> {
-                val msg = root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+                val msg = (root["error"] as? JsonObject)?.get("message")?.let { (it as? JsonPrimitive)?.contentOrNull }
                     ?: "Anthropic 返回错误"
                 return StreamEvent.Failed(msg)
             }
@@ -180,13 +183,14 @@ class SseStreamParser(
 
     private fun parseGemini(root: JsonObject): StreamEvent? {
         val candidates = root["candidates"] as? JsonArray ?: return null
-        val first = candidates.firstOrNull()?.jsonObject ?: return null
-        val parts = first["content"]?.jsonObject?.get("parts") as? JsonArray
-        val text = parts?.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
+        val first = candidates.firstOrNull() as? JsonObject ?: return null
+        val parts = (first["content"] as? JsonObject)?.get("parts") as? JsonArray
+        val text = (parts?.firstOrNull() as? JsonObject)?.get("text")?.let { (it as? JsonPrimitive)?.contentOrNull }
         if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
-        first["finishReason"]?.jsonPrimitive?.contentOrNull?.let { return StreamEvent.Completed }
+        (first["finishReason"] as? JsonPrimitive)?.contentOrNull?.let { return StreamEvent.Completed }
         return null
     }
 
-    private fun usageOf(root: JsonObject): JsonObject? = root["usage"]?.jsonObject
+    /** 0.2.0 Fix2: usage 可能是 null / 对象 / 其他类型，只接受对象。 */
+    private fun usageOf(root: JsonObject): JsonObject? = root["usage"] as? JsonObject
 }

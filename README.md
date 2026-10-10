@@ -4,7 +4,7 @@
 
 **由你自己掌管 API Key 的原生 Android AI 对话应用**
 
-[![version](https://img.shields.io/badge/version-0.2.0--Fix-6D5BF6)](../../releases)
+[![version](https://img.shields.io/badge/version-0.2.0--Fix2-6D5BF6)](../../releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)](https://developer.android.com/jetpack/compose)
@@ -37,6 +37,10 @@
 - **生图模式**：配置生图模型后，可直接在聊天里输入描述生成图片并保存到本地
 - 修复浅色 / 深色模式无法即时切换的问题
 - 修复模型回答时可能闪退的重大问题
+- 修复 DeepSeek 流中 `usage:null` 导致回复内容被整体丢弃、模型「不回复」的问题（0.2.0 Fix2）
+- 内置诊断日志：记录警告及以上级别与崩溃现场（含未捕获异常），可在设置中查看并邮件反馈（0.2.0 Fix2）
+- 新增「用户体验改善计划」开关（默认开启，当前仅本地诊断用途）（0.2.0 Fix2）
+- 首次引导支持跳过测试连接；界面适配方屏 / 手表等小屏设备（0.2.0 Fix2）
 
 **模型服务**
 
@@ -44,7 +48,7 @@
 
 | 服务商 | 默认模型 | 协议 |
 | --- | --- | --- |
-| DeepSeek（深度求索） | `deepseek-chat` | OpenAI 兼容 |
+| DeepSeek（深度求索） | `deepseek-flash` | OpenAI 兼容 |
 | Kimi（月之暗面） | `moonshot-v1-8k` | OpenAI 兼容 |
 | 智谱 GLM | `glm-4-plus` | OpenAI 兼容 |
 | 通义千问（阿里云百炼） | `qwen-plus` | OpenAI 兼容 |
@@ -69,12 +73,11 @@
 
 ## 下载
 
-前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0Fix-release.apk` 直接安装。
+前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0Fix2-release.apk` 直接安装。
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MuHan-Intelligence-0.2.0Fix-release.apk` | 约 2.4 MB | 混淆压缩后的发布版 |
-| `MuHan-Intelligence-0.2.0Fix-debug.apk` | 约 19 MB | 未压缩的调试版，便于排查问题 |
+| `MuHan-Intelligence-0.2.0Fix2-release.apk` | 约 2.5 MB | 混淆压缩后的发布版（自 0.2.0 Fix2 起不再提供 Debug APK） |
 | `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
 
 核对下载完整性：

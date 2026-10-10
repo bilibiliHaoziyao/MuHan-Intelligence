@@ -39,6 +39,7 @@ class PreferencesStore @Inject constructor(
         val sendHistory = booleanPreferencesKey("send_history")
         val reasoningEnabled = booleanPreferencesKey("reasoning_enabled")
         val webSearchEnabled = booleanPreferencesKey("web_search_enabled")
+        val uxImprovement = booleanPreferencesKey("ux_improvement")
     }
 
     val preferences: Flow<AppPreferences> = context.preferencesDataStore.data.map { prefs ->
@@ -57,6 +58,7 @@ class PreferencesStore @Inject constructor(
                 reasoningEnabled = prefs[Keys.reasoningEnabled] ?: true,
                 webSearchEnabled = prefs[Keys.webSearchEnabled] ?: false,
             ),
+            uxImprovement = prefs[Keys.uxImprovement] ?: true,
         )
     }
 
@@ -70,6 +72,10 @@ class PreferencesStore @Inject constructor(
 
     suspend fun setDynamicColor(enabled: Boolean) {
         context.preferencesDataStore.edit { it[Keys.dynamicColor] = enabled }
+    }
+
+    suspend fun setUxImprovement(enabled: Boolean) {
+        context.preferencesDataStore.edit { it[Keys.uxImprovement] = enabled }
     }
 
     suspend fun updateGeneration(settings: GenerationSettings) {

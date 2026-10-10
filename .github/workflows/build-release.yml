@@ -101,8 +101,7 @@ jobs:
       - name: 构建 Release APK
         run: ./gradlew assembleRelease --stacktrace
 
-      - name: 构建 Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      # 0.2.0 Fix2：不再构建/发布 Debug APK
 
       - name: 校验签名
         run: |
@@ -123,12 +122,8 @@ jobs:
 
           SAFE_VERSION=$(echo "$VERSION" | tr -d '[:space:]')
           RELEASE_APK=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          DEBUG_APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
 
           cp "$RELEASE_APK" "dist/MuHan-Intelligence-${SAFE_VERSION}-release.apk"
-          if [ -n "$DEBUG_APK" ]; then
-            cp "$DEBUG_APK" "dist/MuHan-Intelligence-${SAFE_VERSION}-debug.apk"
-          fi
 
           # 生成校验值，方便用户核对下载完整性
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
