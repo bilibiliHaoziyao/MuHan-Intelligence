@@ -159,11 +159,26 @@ class ChatViewModel @Inject constructor(
                             // 流式进行中：内存气泡是唯一真相，DB 写入滞后，直接丢弃以免覆盖。
                             state.copy(isLoading = false)
                         } else {
-                            // 0.3.0：逐条保留「更长的正文」。刚完成的回复可能在内存中比
-                            // DB 快照更新，若用较旧的 DB 内容覆盖，回答会被截断甚至消失。
-                            val merged = dbMessages.map { db ->
-                                val mem = state.messages.firstOrNull { it.id == db.id }
-                                if (mem != null && mem.content.length > db.content.length) mem else db
+                            // 0.4.0：DB 是持久化真相，但流式占位可能尚未落库或落库内容滞后
+                            // （updateStreamingContent 是节流的，DB 里常是更短的中间态）。
+                            // 以 DB 为基准，逐条用「仍在流式 / 正文更长」的内存版本覆盖；
+                            // 再补回仅存在于内存、DB 尚未包含的消息（如刚插入未落库的占位），
+                            // 杜绝收集器用不完整的 DB 快照覆盖掉刚完成的回答。
+                            val byId = dbMessages.associateBy { it.id }
+                            val merged = buildList {
+                                for (db in dbMessages) {
+                                    val mem = state.messages.firstOrNull { it.id == db.id }
+                                    add(
+                                        if (mem != null && (mem.status == MessageStatus.STREAMING || mem.content.length >= db.content.length)) {
+                                            mem
+                                        } else {
+                                            db
+                                        },
+                                    )
+                                }
+                                for (mem in state.messages) {
+                                    if (mem.id !in byId) add(mem)
+                                }
                             }
                             state.copy(messages = merged, isLoading = false)
                         }
@@ -444,9 +459,18 @@ class ChatViewModel @Inject constructor(
             )
         }
 
+        // 0.4.0 根因修复：必须先把占位气泡落库，否则流式期间的 updateStreamingContent
+        // 只是 UPDATE（对不存在的行 0 行影响）、finishMessage 也会因 getById 为空而
+        // no-op——DB 快照里始终没有这条回复。一旦 observeMessages 的某次 emission 在
+        // 生成结束后才被处理，收集器会用「只有用户消息」的列表覆盖内存，把刚完成的
+        // 回答抹掉，表现为「回答完之后消失」。落库后 DB 始终包含该消息，问题消失。
+        // （该调用位于下方 generationJob 协程内，因为 appendMessage 是 suspend 函数。）
+
         logRepository.info("Chat", "开始生成回复，服务商=${provider.displayName}，模型=${provider.modelName}")
 
         generationJob = viewModelScope.launch {
+            // 在协程内落库占位气泡（generate 本身不是 suspend，故不能在其体内直接调用）。
+            conversationRepository.appendMessage(placeholder)
             var content = StringBuilder()
             var reasoning = StringBuilder()
             var tokenCount: Int? = null
