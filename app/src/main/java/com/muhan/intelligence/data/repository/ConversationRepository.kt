@@ -112,10 +112,14 @@ class ConversationRepository @Inject constructor(
 
     suspend fun deleteMessage(messageId: String) = messageDao.deleteById(messageId)
 
-    /** Removes [messageId] and every message that came after it, then re-appends [messageId]. */
+    /** Removes [messageId] and every message that came after it (keeps the ones before). */
     suspend fun truncateFrom(messageId: String, conversationId: String) {
-        messageDao.deleteAllExcept(conversationId, messageId)
+        messageDao.deleteFrom(conversationId, messageId)
     }
+
+    /** Marks any leftover STREAMING rows (e.g. after a mid-stream process kill) as COMPLETE. */
+    suspend fun finalizeStreamingMessages(conversationId: String) =
+        messageDao.finalizeStreaming(conversationId)
 
     suspend fun clearMessages(conversationId: String) = messageDao.deleteForConversation(conversationId)
 

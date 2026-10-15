@@ -87,8 +87,22 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM messages WHERE conversation_id = :conversationId AND id != :keepId")
-    suspend fun deleteAllExcept(conversationId: String, keepId: String)
+    // 0.5.1 修复：旧实现 deleteAllExcept 是 `id != keepId`（只保留目标、删掉其余所有），
+    // 与「删除目标及其之后」的本意完全相反，导致每次编辑消息都清空整个对话历史。
+    // 正确语义：删除目标消息及 created_at 在其之后的所有消息，保留之前的。
+    @Query(
+        """
+        DELETE FROM messages
+        WHERE conversation_id = :conversationId
+          AND created_at >= COALESCE((SELECT created_at FROM messages WHERE id = :messageId), 0)
+        """,
+    )
+    suspend fun deleteFrom(conversationId: String, messageId: String)
+
+    // 0.5.1：应用若在流式中被杀，数据库会残留 STREAMING 状态的消息，重启后永久转圈。
+    // 加载会话时把所有遗留的 STREAMING 消息标记为 COMPLETE（内容为已持久化的部分）。
+    @Query("UPDATE messages SET status = 'COMPLETE' WHERE conversation_id = :conversationId AND status = 'STREAMING'")
+    suspend fun finalizeStreaming(conversationId: String)
 
     @Query("DELETE FROM messages WHERE conversation_id = :conversationId")
     suspend fun deleteForConversation(conversationId: String)

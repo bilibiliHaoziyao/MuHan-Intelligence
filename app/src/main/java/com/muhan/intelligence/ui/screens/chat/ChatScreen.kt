@@ -412,16 +412,20 @@ private fun MessageList(
         }
     }
 
+    // 0.5.1 崩溃保险：任何情况下都保证传给 LazyColumn 的 key 唯一。
+    // 万一上游数据出现重复 id，distinctBy 去重而不是让 Compose 抛「key 已被使用」崩溃。
+    val distinctMessages = messages.distinctBy { it.id }
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        items(items = messages, key = { it.id }) { message ->
+        items(items = distinctMessages, key = { it.id }) { message ->
             MessageBubble(
                 message = message,
-                isLastAssistant = message.id == messages.lastOrNull()?.id,
+                isLastAssistant = message.id == distinctMessages.lastOrNull()?.id,
                 onCopy = { onCopy(message.content) },
                 onRetry = { onRetry(message.id) },
                 onEdit = { newText -> onEdit(message.id, newText) },

@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -64,6 +65,17 @@ data class ChatUiState(
         get() = activeProvider?.supportsImageGeneration == true
 }
 
+/**
+ * 消息显示的单一事实来源是 Room 数据库（按 created_at 排序）。
+ *
+ * 0.5.1 重构：此前「内存列表 + 数据库列表」双事实来源靠 reconcile 合并，是反复出现
+ * 「回答消失 / 记录错乱 / 重复崩溃」的总根源。现在渲染列表完全由数据库驱动，内存只
+ * 保存「正在流式的那一条」消息的实时内容（[streamingMessage]），通过
+ * [applyStreamingOverride] 覆盖到数据库列表上。这样：
+ *  - 顺序永远由数据库 created_at 决定，绝不错乱；
+ *  - 不可能出现重复 id（数据库主键唯一），杜绝 LazyColumn 重复 key 崩溃；
+ *  - 删除/编辑只写数据库，Room 自动 emit 最新列表，不存在幽灵消息。
+ */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
@@ -88,6 +100,13 @@ class ChatViewModel @Inject constructor(
 
     /** Whether generation defaults have been seeded from settings at least once. */
     private var extrasSeeded = false
+
+    /**
+     * 正在生成的那条消息的实时内容（内存覆盖层）。非空时优先于数据库版本渲染，
+     * 这样流式 token 不被节流的数据库写入拖累。生成结束后置为 COMPLETE 版本，
+     * 待数据库追平后由 [applyStreamingOverride] 自动放下覆盖，避免闪烁。
+     */
+    private val streamingMessage = MutableStateFlow<ChatMessage?>(null)
 
     init {
         observeSettings()
@@ -143,26 +162,24 @@ class ChatViewModel @Inject constructor(
 
             _uiState.update { it.copy(conversationId = id) }
 
+            // 0.5.1：清掉上次异常退出遗留的 STREAMING 消息，避免永久「正在生成」转圈。
+            runCatching { conversationRepository.finalizeStreamingMessages(id) }
+
             launch {
                 conversationRepository.observeConversation(id).collect { conversation ->
                     _uiState.update { it.copy(conversation = conversation) }
                 }
             }
 
-            conversationRepository.observeMessages(id)
+            // 数据库消息（顺序/持久化权威） × 流式覆盖层（正在生成那条的实时内容）。
+            combine(conversationRepository.observeMessages(id), streamingMessage) { dbMessages, live ->
+                applyStreamingOverride(dbMessages, live)
+            }
                 .catch { e ->
                     _uiState.update { it.copy(isLoading = false, errorBanner = e.message) }
                 }
-                .collect { dbMessages ->
-                    // 内存列表始终是顺序的权威来源（用户消息在 send 加入、助手在
-                    // generate 加入，顺序天然正确）。合并只用 DB 来「补全已落库的完成态」，
-                    // 不再把内存消息甩到队尾，从根本上杜绝聊天记录错乱。
-                    _uiState.update { state ->
-                        state.copy(
-                            messages = reconcileMessages(state.messages, dbMessages, state.isGenerating),
-                            isLoading = false,
-                        )
-                    }
+                .collect { merged ->
+                    _uiState.update { it.copy(messages = merged, isLoading = false) }
                 }
         }
     }
@@ -240,10 +257,10 @@ class ChatViewModel @Inject constructor(
         if (message.role != Role.ASSISTANT) return
 
         viewModelScope.launch {
+            // 清掉可能仍指向被删消息的流式覆盖，避免它被 override 复活。
+            streamingMessage.value = null
             conversationRepository.deleteMessage(messageId)
             val history = conversationRepository.loadHistory(state.conversationId)
-            // 0.5.0：删除后重建内存列表，避免被删消息作为 memory-only 重新出现。
-            _uiState.update { it.copy(messages = history) }
             generate(history)
         }
     }
@@ -254,18 +271,15 @@ class ChatViewModel @Inject constructor(
         val message = state.messages.firstOrNull { it.id == messageId } ?: return
 
         viewModelScope.launch {
-            // Drop this message and every later one, then re-append the edited turn.
+            streamingMessage.value = null
+            // 删掉这条及之后的所有消息（保留之前的），再追加编辑后的这条。
             conversationRepository.truncateFrom(message.id, state.conversationId)
-            conversationRepository.deleteMessage(message.id)
 
             val edited = message.copy(content = newContent.trim(), createdAt = System.currentTimeMillis())
             conversationRepository.appendMessage(edited)
             conversationRepository.refreshMessageCount(state.conversationId)
 
             val history = conversationRepository.loadHistory(state.conversationId)
-            // 0.5.0：编辑后重建内存列表（被截断的旧消息已从 DB 删除），再追加新占位，
-            // 防止旧消息以 memory-only 形式重新混入。
-            _uiState.update { it.copy(messages = history) }
             generate(history)
         }
     }
@@ -296,20 +310,14 @@ class ChatViewModel @Inject constructor(
                     content = text,
                     attachments = attachments,
                 )
+                // 只写数据库；渲染由 Room emission 驱动，无需也不应再手动改内存列表，
+                // 否则同一条消息会被内存 + 数据库双写，造成重复 id 崩溃（0.5.0 的回归）。
                 conversationRepository.appendMessage(userMessage)
                 if (text.isNotBlank()) {
                     conversationRepository.updateTitleFromFirstMessage(conversationId, text)
                 }
                 logRepository.info("Chat", "用户发送消息，含 ${attachments.size} 个附件")
-                // 0.5.0：把用户消息立即加入内存列表，使顺序权威且发送瞬间即可见，
-                // 不再依赖 DB emission 补齐（此前会导致图片模式下用户消息被甩到回复之后）。
-                _uiState.update {
-                    it.copy(
-                        input = "",
-                        pendingAttachments = emptyList(),
-                        messages = it.messages.filter { m -> m.status != MessageStatus.FAILED } + userMessage,
-                    )
-                }
+                _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
                 val history = conversationRepository.loadHistory(conversationId)
                 generate(history)
@@ -333,37 +341,27 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             val conversationId = state.conversationId
-            val userMessage = ChatMessage(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                role = Role.USER,
-                content = prompt,
+            conversationRepository.appendMessage(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    role = Role.USER,
+                    content = prompt,
+                ),
             )
-            conversationRepository.appendMessage(userMessage)
             conversationRepository.updateTitleFromFirstMessage(conversationId, prompt)
-            // 0.5.0：用户提问立即加入内存，避免落库后作为 DB-only 被合并逻辑甩到回复之后。
-            _uiState.update {
-                it.copy(
-                    input = "",
-                    isGenerating = true,
-                    errorBanner = null,
-                    messages = it.messages.filter { m -> m.status != MessageStatus.FAILED } + userMessage,
-                )
-            }
+            _uiState.update { it.copy(input = "", isGenerating = true, errorBanner = null) }
 
             val placeholderId = UUID.randomUUID().toString()
-            _uiState.update {
-                it.copy(
-                    messages = it.messages + ChatMessage(
-                        id = placeholderId,
-                        conversationId = conversationId,
-                        role = Role.ASSISTANT,
-                        content = "",
-                        status = MessageStatus.STREAMING,
-                        modelName = it.activeProvider?.imageModel,
-                    ),
-                )
-            }
+            // 占位气泡只进覆盖层（不落库），渲染时追加到数据库列表末尾。
+            streamingMessage.value = ChatMessage(
+                id = placeholderId,
+                conversationId = conversationId,
+                role = Role.ASSISTANT,
+                content = "",
+                status = MessageStatus.STREAMING,
+                modelName = state.activeProvider?.imageModel,
+            )
 
             val result = providerRepository.generateImage(
                 provider = state.activeProvider!!,
@@ -378,19 +376,21 @@ class ChatViewModel @Inject constructor(
                         } else {
                             reply.source
                         }
-                        conversationRepository.appendMessage(
-                            ChatMessage(
-                                id = placeholderId,
-                                conversationId = conversationId,
-                                role = Role.ASSISTANT,
-                                content = reply.revisedPrompt.orEmpty(),
-                                status = MessageStatus.COMPLETE,
-                                modelName = state.activeProvider?.imageModel,
-                                imageUrl = imagePath,
-                            ),
+                        val done = ChatMessage(
+                            id = placeholderId,
+                            conversationId = conversationId,
+                            role = Role.ASSISTANT,
+                            content = reply.revisedPrompt.orEmpty(),
+                            status = MessageStatus.COMPLETE,
+                            modelName = state.activeProvider?.imageModel,
+                            imageUrl = imagePath,
                         )
+                        conversationRepository.appendMessage(done)
                         conversationRepository.refreshMessageCount(conversationId)
+                        // 覆盖层先给最终态，待数据库追平后自动放下，避免闪烁。
+                        streamingMessage.value = done
                     }.onFailure { t ->
+                        streamingMessage.value = null
                         _uiState.update {
                             it.copy(errorBanner = t.message ?: "生图结果保存失败。")
                         }
@@ -398,11 +398,9 @@ class ChatViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     runCatching { conversationRepository.deleteMessage(placeholderId) }
+                    streamingMessage.value = null
                     _uiState.update {
-                        it.copy(
-                            messages = it.messages.filterNot { m -> m.id == placeholderId },
-                            errorBanner = error.message ?: "生图失败，请稍后重试。",
-                        )
+                        it.copy(errorBanner = error.message ?: "生图失败，请稍后重试。")
                     }
                 },
             )
@@ -419,22 +417,22 @@ class ChatViewModel @Inject constructor(
 
         logRepository.info("Chat", "用户手动停止生成")
 
-        val state = _uiState.value
-        val streaming = state.messages.lastOrNull() ?: return
+        val live = streamingMessage.value
         viewModelScope.launch {
-            if (streaming.status == MessageStatus.STREAMING) {
+            if (live != null && live.status == MessageStatus.STREAMING) {
                 conversationRepository.finishMessage(
-                    messageId = streaming.id,
-                    content = streaming.content,
-                    reasoning = streaming.reasoningContent,
+                    messageId = live.id,
+                    content = live.content,
+                    reasoning = live.reasoningContent,
                     tokenCount = null,
                 )
+                streamingMessage.value = live.copy(status = MessageStatus.COMPLETE)
             }
             _uiState.update { it.copy(isGenerating = false) }
         }
     }
 
-    /** Creates the assistant placeholder bubble and drives the stream into it. */
+    /** Creates the assistant placeholder and drives the stream into it. */
     private fun generate(history: List<ChatMessage>) {
         val state = _uiState.value
         val provider = state.activeProvider ?: return
@@ -451,25 +449,16 @@ class ChatViewModel @Inject constructor(
             modelName = provider.modelName,
         )
 
-        _uiState.update {
-            it.copy(
-                messages = it.messages.filter { m -> m.status != MessageStatus.FAILED } + placeholder,
-                isGenerating = true,
-                errorBanner = null,
-            )
-        }
-
-        // 0.4.0 根因修复：必须先把占位气泡落库，否则流式期间的 updateStreamingContent
-        // 只是 UPDATE（对不存在的行 0 行影响）、finishMessage 也会因 getById 为空而
-        // no-op——DB 快照里始终没有这条回复。一旦 observeMessages 的某次 emission 在
-        // 生成结束后才被处理，收集器会用「只有用户消息」的列表覆盖内存，把刚完成的
-        // 回答抹掉，表现为「回答完之后消失」。落库后 DB 始终包含该消息，问题消失。
-        // （该调用位于下方 generationJob 协程内，因为 appendMessage 是 suspend 函数。）
+        // 占位气泡既落库（保证数据库里始终有这条，杜绝「回答消失」），也放进覆盖层
+        // （让流式 token 实时上屏，不被节流的数据库写入拖累）。
+        streamingMessage.value = placeholder
+        _uiState.update { it.copy(isGenerating = true, errorBanner = null) }
 
         logRepository.info("Chat", "开始生成回复，服务商=${provider.displayName}，模型=${provider.modelName}")
 
         generationJob = viewModelScope.launch {
-            // 在协程内落库占位气泡（generate 本身不是 suspend，故不能在其体内直接调用）。
+            // 0.4.0：先把占位落库。这样 updateStreamingContent / finishMessage 都有行可改，
+            // 数据库快照始终包含这条回复。
             conversationRepository.appendMessage(placeholder)
             var content = StringBuilder()
             var reasoning = StringBuilder()
@@ -526,12 +515,9 @@ class ChatViewModel @Inject constructor(
                     conversationRepository.failMessage(assistantId, failureMessage!!)
                     conversationRepository.deleteMessage(assistantId)
                 }
+                streamingMessage.value = null
                 _uiState.update {
-                    it.copy(
-                        isGenerating = false,
-                        messages = it.messages.filterNot { m -> m.id == assistantId },
-                        errorBanner = failureMessage,
-                    )
+                    it.copy(isGenerating = false, errorBanner = failureMessage)
                 }
             } else {
                 // 0.2.0 Fix2：空回复写入日志，便于诊断「模型不回复」类问题。
@@ -550,21 +536,16 @@ class ChatViewModel @Inject constructor(
                     )
                     conversationRepository.refreshMessageCount(state.conversationId)
                 }
+                // 覆盖层给最终 COMPLETE 版本；数据库追平后由 applyStreamingOverride 放下。
+                streamingMessage.value = placeholder.copy(
+                    content = finalContent,
+                    reasoningContent = finalReasoning,
+                    status = MessageStatus.COMPLETE,
+                )
                 _uiState.update {
                     it.copy(
                         isGenerating = false,
-                        messages = it.messages.map { m ->
-                            if (m.id == assistantId) {
-                                m.copy(
-                                    content = finalContent,
-                                    reasoningContent = finalReasoning,
-                                    status = MessageStatus.COMPLETE,
-                                )
-                            } else {
-                                m
-                            }
-                        },
-                        infoBanner = failureMessage?.let { "生成中断：$it" },
+                        infoBanner = failureMessage?.let { m -> "生成中断：$m" },
                     )
                 }
             }
@@ -572,18 +553,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Pushes the growing buffer into UI state and schedules a throttled DB write. */
+    /** Pushes the growing buffer into the streaming overlay and schedules a throttled DB write. */
     private fun publishStreaming(id: String, content: String, reasoning: String) {
-        _uiState.update { state ->
-            state.copy(
-                messages = state.messages.map { message ->
-                    if (message.id == id) {
-                        message.copy(content = content, reasoningContent = reasoning)
-                    } else {
-                        message
-                    }
-                },
-            )
+        streamingMessage.update { live ->
+            if (live?.id == id) live.copy(content = content, reasoningContent = reasoning) else live
         }
         schedulePersist(id, content, reasoning)
     }
@@ -663,39 +636,21 @@ class ChatViewModel @Inject constructor(
 }
 
 /**
- * 合并内存消息与数据库消息，得到最终用于渲染的列表。
+ * 把「正在流式的那条消息」的实时内容覆盖到数据库列表上，得到最终渲染列表。
  *
- * 顺序规则（关键，用于修复「聊天记录错乱」）：
- * 1. 以**内存列表顺序**为权威——用户消息在 [send] 时加入、助手在 [generate] 时加入，
- *    二者顺序天然正确，绝不被打乱。
- * 2. 流式进行中（[isGenerating]）直接返回内存列表：DB 写入是节流且滞后的，实时内容在内存。
- * 3. 非流式时，对内存中每条消息：若其 DB 版本已是 [MessageStatus.COMPLETE] 而内存版本
- *    还不是（例如流式占位已被 finishMessage 落库），则用 DB 版本覆盖，避免残留的
- *    流式中间态盖掉已完成的回复；其余一律保留内存版本。
- * 4. 仅存在于 DB 的消息（如冷启动从 Room 加载的历史）按 DB 顺序追加到末尾。
- *
- * 这样无论 DB emission 何时到达、是否滞后，渲染顺序都稳定正确，且不会出现
- * 「内存消息被甩到队尾」「已删除消息重新出现」「用户消息跑到回复之后」等错乱。
+ * 规则（0.5.1，顺序与持久化都以数据库为准）：
+ * 1. [live] 为 null → 直接返回数据库列表。
+ * 2. 数据库里还没有这条（占位尚未落库的瞬间）→ 追加到末尾（它是最新一条）。
+ * 3. [live] 已完结且数据库版本也已是 [MessageStatus.COMPLETE] → 返回数据库列表，
+ *    相当于自动放下覆盖层，避免生成结束时的内容闪烁。
+ * 4. 其余（正在流式，或数据库版本滞后）→ 用 [live] 覆盖数据库中同 id 的那条。
  */
-internal fun reconcileMessages(
-    memory: List<ChatMessage>,
+internal fun applyStreamingOverride(
     db: List<ChatMessage>,
-    isGenerating: Boolean,
+    live: ChatMessage?,
 ): List<ChatMessage> {
-    if (isGenerating) return memory
-
-    val dbById = db.associateBy { it.id }
-    return buildList {
-        for (mem in memory) {
-            val dbMsg = dbById[mem.id]
-            if (dbMsg != null && dbMsg.status == MessageStatus.COMPLETE && mem.status != MessageStatus.COMPLETE) {
-                add(dbMsg)
-            } else {
-                add(mem)
-            }
-        }
-        for (dbMsg in db) {
-            if (memory.none { it.id == dbMsg.id }) add(dbMsg)
-        }
-    }
+    if (live == null) return db
+    val dbVersion = db.firstOrNull { it.id == live.id } ?: return db + live
+    if (live.status != MessageStatus.STREAMING && dbVersion.status == MessageStatus.COMPLETE) return db
+    return db.map { if (it.id == live.id) live else it }
 }
