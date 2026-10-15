@@ -170,7 +170,7 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
                 val start = if (!state.onboardingCompleted && !state.hasProvider) {
                     Routes.ONBOARDING
                 } else {
-                    Routes.CHAT
+                    Routes.CHAT_START
                 }
                 MuHanNavHost(navController = navController, startDestination = start)
             }

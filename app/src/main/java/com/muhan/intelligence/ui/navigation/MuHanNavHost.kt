@@ -73,17 +73,17 @@ fun MuHanNavHost(
             )
         }
 
-        // Two chat routes rather than one optional arg: this keeps "new chat" and
-        // "open existing thread" as distinct entries so returning from settings
-        // restores the right conversation.
-        composable(Routes.CHAT) {
-            ChatRouteCommon(navController = navController)
-        }
-
+        // 单一会话路由 + 可选 conversationId 参数（详见 Routes.CHAT_ROUTE 注释）。
+        // 新建与打开已有会话共用此路由，使 popUpTo(CHAT_ROUTE) 能稳定替换当前会话，
+        // 避免切换/新建时层层堆叠导致多份 ChatViewModel 共存而闪退、记录错乱。
         composable(
-            route = "${Routes.CHAT}/{${Routes.ARG_CONVERSATION_ID}}",
+            route = Routes.CHAT_ROUTE,
             arguments = listOf(
-                navArgument(Routes.ARG_CONVERSATION_ID) { type = NavType.StringType },
+                navArgument(Routes.ARG_CONVERSATION_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) {
             ChatRouteCommon(navController = navController)
@@ -145,14 +145,15 @@ private fun ChatRouteCommon(navController: NavHostController) {
     ChatScreen(
         onOpenSettings = { navController.navigate(Routes.SETTINGS) },
         onNewChat = {
+            // 替换当前会话而非堆叠：popUpTo 命中单一路由 CHAT_ROUTE。
             navController.navigate(Routes.CHAT) {
-                popUpTo(Routes.CHAT) { inclusive = true }
+                popUpTo(Routes.CHAT_ROUTE) { inclusive = true }
                 launchSingleTop = true
             }
         },
         onSelectConversation = { id ->
             navController.navigate(Routes.chat(id)) {
-                popUpTo(Routes.CHAT) { inclusive = true }
+                popUpTo(Routes.CHAT_ROUTE) { inclusive = true }
                 launchSingleTop = true
             }
         },

@@ -162,6 +162,8 @@ class ChatViewModel @Inject constructor(
 
             _uiState.update { it.copy(conversationId = id) }
 
+            logRepository.info("Chat", "打开会话 conversationId=$id（来源：${if (initialConversationId.isBlank()) "新建/复用空会话" else "指定会话"}）")
+
             // 0.5.1：清掉上次异常退出遗留的 STREAMING 消息，避免永久「正在生成」转圈。
             runCatching { conversationRepository.finalizeStreamingMessages(id) }
 
@@ -316,7 +318,10 @@ class ChatViewModel @Inject constructor(
                 if (text.isNotBlank()) {
                     conversationRepository.updateTitleFromFirstMessage(conversationId, text)
                 }
-                logRepository.info("Chat", "用户发送消息，含 ${attachments.size} 个附件")
+                logRepository.info(
+                    "Chat",
+                    "用户发送消息 conversationId=$conversationId，正文长度=${text.length}，附件=${attachments.size}",
+                )
                 _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
                 val history = conversationRepository.loadHistory(conversationId)
@@ -387,8 +392,8 @@ class ChatViewModel @Inject constructor(
                         )
                         conversationRepository.appendMessage(done)
                         conversationRepository.refreshMessageCount(conversationId)
-                        // 覆盖层先给最终态，待数据库追平后自动放下，避免闪烁。
-                        streamingMessage.value = done
+                        // 已落库，覆盖层清空，渲染直接以数据库为准，避免残留覆盖。
+                        streamingMessage.value = null
                     }.onFailure { t ->
                         streamingMessage.value = null
                         _uiState.update {
@@ -454,7 +459,11 @@ class ChatViewModel @Inject constructor(
         streamingMessage.value = placeholder
         _uiState.update { it.copy(isGenerating = true, errorBanner = null) }
 
-        logRepository.info("Chat", "开始生成回复，服务商=${provider.displayName}，模型=${provider.modelName}")
+        logRepository.info(
+            "Chat",
+            "开始生成回复 conversationId=${state.conversationId}，服务商=${provider.displayName}，" +
+                "模型=${provider.modelName}，历史消息数=${history.size}，深度思考=${extras.thinkingEnabled}，联网搜索=${extras.webSearchEnabled}",
+        )
 
         generationJob = viewModelScope.launch {
             // 0.4.0：先把占位落库。这样 updateStreamingContent / finishMessage 都有行可改，
@@ -535,13 +544,16 @@ class ChatViewModel @Inject constructor(
                         tokenCount = tokenCount,
                     )
                     conversationRepository.refreshMessageCount(state.conversationId)
+                    logRepository.info(
+                        "Chat",
+                        "生成完成 conversationId=${state.conversationId}，正文长度=${finalContent.length}，" +
+                            "思考长度=${finalReasoning.length}，token=${tokenCount ?: "未知"}",
+                    )
                 }
-                // 覆盖层给最终 COMPLETE 版本；数据库追平后由 applyStreamingOverride 放下。
-                streamingMessage.value = placeholder.copy(
-                    content = finalContent,
-                    reasoningContent = finalReasoning,
-                    status = MessageStatus.COMPLETE,
-                )
+                // 数据库已写入最终态，覆盖层直接清空——此后 applyStreamingOverride 返回纯
+                // 数据库列表，绝不残留任何覆盖，从根上杜绝「生成结束后上方记录被清空 /
+                // 回答消失」的回归。
+                streamingMessage.value = null
                 _uiState.update {
                     it.copy(
                         isGenerating = false,

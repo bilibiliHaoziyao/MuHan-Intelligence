@@ -111,9 +111,10 @@ class RequestBodyFactoryTest {
     }
 
     @Test
-    fun `openai thinking on omits enable_thinking`() {
+    fun `openai thinking on sends enable_thinking true`() {
+        // 显式下发 true，避免依赖服务商默认值导致「开关打开却没思考」。
         val body = Json.parseToJsonElement(build(thinking = true)).jsonObject
-        assertNull(body["enable_thinking"])
+        assertEquals("true", body["enable_thinking"]!!.jsonPrimitive.content)
     }
 
     @Test

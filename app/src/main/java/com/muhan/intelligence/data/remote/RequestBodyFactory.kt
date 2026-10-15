@@ -122,11 +122,10 @@ object RequestBodyFactory {
             putJsonObject("stream_options") { put("include_usage", true) }
         }
 
-        // Deep-think switch: Qwen3 / vLLM / SiliconFlow honour `enable_thinking`;
-        // providers that don't know the field ignore it.
-        if (!thinkingEnabled) {
-            put("enable_thinking", false)
-        }
+        // Deep-think switch: Qwen3 / vLLM / SiliconFlow honour `enable_thinking`.
+        // 显式下发 true/false，避免依赖服务商默认值导致「开关打开却没思考」。
+        // 不识别该字段的服务商（按既有约定）会忽略它。
+        put("enable_thinking", thinkingEnabled)
         // Server-side web search: OpenAI's documented knob. Aggregators either
         // support it or ignore it.
         if (webSearchEnabled) {
