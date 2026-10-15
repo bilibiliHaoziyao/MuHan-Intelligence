@@ -154,34 +154,14 @@ class ChatViewModel @Inject constructor(
                     _uiState.update { it.copy(isLoading = false, errorBanner = e.message) }
                 }
                 .collect { dbMessages ->
+                    // 内存列表始终是顺序的权威来源（用户消息在 send 加入、助手在
+                    // generate 加入，顺序天然正确）。合并只用 DB 来「补全已落库的完成态」，
+                    // 不再把内存消息甩到队尾，从根本上杜绝聊天记录错乱。
                     _uiState.update { state ->
-                        if (state.isGenerating) {
-                            // 流式进行中：内存气泡是唯一真相，DB 写入滞后，直接丢弃以免覆盖。
-                            state.copy(isLoading = false)
-                        } else {
-                            // 0.4.0：DB 是持久化真相，但流式占位可能尚未落库或落库内容滞后
-                            // （updateStreamingContent 是节流的，DB 里常是更短的中间态）。
-                            // 以 DB 为基准，逐条用「仍在流式 / 正文更长」的内存版本覆盖；
-                            // 再补回仅存在于内存、DB 尚未包含的消息（如刚插入未落库的占位），
-                            // 杜绝收集器用不完整的 DB 快照覆盖掉刚完成的回答。
-                            val byId = dbMessages.associateBy { it.id }
-                            val merged = buildList {
-                                for (db in dbMessages) {
-                                    val mem = state.messages.firstOrNull { it.id == db.id }
-                                    add(
-                                        if (mem != null && (mem.status == MessageStatus.STREAMING || mem.content.length >= db.content.length)) {
-                                            mem
-                                        } else {
-                                            db
-                                        },
-                                    )
-                                }
-                                for (mem in state.messages) {
-                                    if (mem.id !in byId) add(mem)
-                                }
-                            }
-                            state.copy(messages = merged, isLoading = false)
-                        }
+                        state.copy(
+                            messages = reconcileMessages(state.messages, dbMessages, state.isGenerating),
+                            isLoading = false,
+                        )
                     }
                 }
         }
@@ -262,6 +242,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             conversationRepository.deleteMessage(messageId)
             val history = conversationRepository.loadHistory(state.conversationId)
+            // 0.5.0：删除后重建内存列表，避免被删消息作为 memory-only 重新出现。
+            _uiState.update { it.copy(messages = history) }
             generate(history)
         }
     }
@@ -281,6 +263,9 @@ class ChatViewModel @Inject constructor(
             conversationRepository.refreshMessageCount(state.conversationId)
 
             val history = conversationRepository.loadHistory(state.conversationId)
+            // 0.5.0：编辑后重建内存列表（被截断的旧消息已从 DB 删除），再追加新占位，
+            // 防止旧消息以 memory-only 形式重新混入。
+            _uiState.update { it.copy(messages = history) }
             generate(history)
         }
     }
@@ -316,7 +301,15 @@ class ChatViewModel @Inject constructor(
                     conversationRepository.updateTitleFromFirstMessage(conversationId, text)
                 }
                 logRepository.info("Chat", "用户发送消息，含 ${attachments.size} 个附件")
-                _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
+                // 0.5.0：把用户消息立即加入内存列表，使顺序权威且发送瞬间即可见，
+                // 不再依赖 DB emission 补齐（此前会导致图片模式下用户消息被甩到回复之后）。
+                _uiState.update {
+                    it.copy(
+                        input = "",
+                        pendingAttachments = emptyList(),
+                        messages = it.messages.filter { m -> m.status != MessageStatus.FAILED } + userMessage,
+                    )
+                }
 
                 val history = conversationRepository.loadHistory(conversationId)
                 generate(history)
@@ -340,16 +333,23 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             val conversationId = state.conversationId
-            conversationRepository.appendMessage(
-                ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    conversationId = conversationId,
-                    role = Role.USER,
-                    content = prompt,
-                ),
+            val userMessage = ChatMessage(
+                id = UUID.randomUUID().toString(),
+                conversationId = conversationId,
+                role = Role.USER,
+                content = prompt,
             )
+            conversationRepository.appendMessage(userMessage)
             conversationRepository.updateTitleFromFirstMessage(conversationId, prompt)
-            _uiState.update { it.copy(input = "", isGenerating = true, errorBanner = null) }
+            // 0.5.0：用户提问立即加入内存，避免落库后作为 DB-only 被合并逻辑甩到回复之后。
+            _uiState.update {
+                it.copy(
+                    input = "",
+                    isGenerating = true,
+                    errorBanner = null,
+                    messages = it.messages.filter { m -> m.status != MessageStatus.FAILED } + userMessage,
+                )
+            }
 
             val placeholderId = UUID.randomUUID().toString()
             _uiState.update {
@@ -659,5 +659,43 @@ class ChatViewModel @Inject constructor(
 
         /** ~24k characters ≈ 8-12k tokens, safe for most providers' context windows. */
         const val CONTEXT_CHAR_BUDGET = 24_000
+    }
+}
+
+/**
+ * 合并内存消息与数据库消息，得到最终用于渲染的列表。
+ *
+ * 顺序规则（关键，用于修复「聊天记录错乱」）：
+ * 1. 以**内存列表顺序**为权威——用户消息在 [send] 时加入、助手在 [generate] 时加入，
+ *    二者顺序天然正确，绝不被打乱。
+ * 2. 流式进行中（[isGenerating]）直接返回内存列表：DB 写入是节流且滞后的，实时内容在内存。
+ * 3. 非流式时，对内存中每条消息：若其 DB 版本已是 [MessageStatus.COMPLETE] 而内存版本
+ *    还不是（例如流式占位已被 finishMessage 落库），则用 DB 版本覆盖，避免残留的
+ *    流式中间态盖掉已完成的回复；其余一律保留内存版本。
+ * 4. 仅存在于 DB 的消息（如冷启动从 Room 加载的历史）按 DB 顺序追加到末尾。
+ *
+ * 这样无论 DB emission 何时到达、是否滞后，渲染顺序都稳定正确，且不会出现
+ * 「内存消息被甩到队尾」「已删除消息重新出现」「用户消息跑到回复之后」等错乱。
+ */
+internal fun reconcileMessages(
+    memory: List<ChatMessage>,
+    db: List<ChatMessage>,
+    isGenerating: Boolean,
+): List<ChatMessage> {
+    if (isGenerating) return memory
+
+    val dbById = db.associateBy { it.id }
+    return buildList {
+        for (mem in memory) {
+            val dbMsg = dbById[mem.id]
+            if (dbMsg != null && dbMsg.status == MessageStatus.COMPLETE && mem.status != MessageStatus.COMPLETE) {
+                add(dbMsg)
+            } else {
+                add(mem)
+            }
+        }
+        for (dbMsg in db) {
+            if (memory.none { it.id == dbMsg.id }) add(dbMsg)
+        }
     }
 }
