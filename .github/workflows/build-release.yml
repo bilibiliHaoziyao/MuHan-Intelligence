@@ -95,6 +95,30 @@ jobs:
             || { echo "::error::签名文件路径无法解析"; exit 1; }
           echo "签名文件路径解析正常"
 
+      # ------------------------------------------------------------------
+      # 注入内置「慕寒智能」接入信息。这些值来自 GitHub Actions Secrets（不进源码），
+      # 仅在仓库 Settings → Secrets 中配置 MHI_BASE_URL / MHI_API_KEY / MHI_MODEL 后生效；
+      # 未配置时跳过，构建出的包不含内置模型密钥（默认模型将无法鉴权）。
+      # ------------------------------------------------------------------
+      - name: 注入内置慕寒智能接入信息（来自 Secrets）
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          MHI_BASE_URL: ${{ secrets.MHI_BASE_URL }}
+          MHI_API_KEY: ${{ secrets.MHI_API_KEY }}
+          MHI_MODEL: ${{ secrets.MHI_MODEL }}
+        run: |
+          set -euo pipefail
+          if [ ! -f local.properties ]; then
+            echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          fi
+          {
+            [ -n "${MHI_BASE_URL:-}" ] && echo "MHI_BASE_URL=${MHI_BASE_URL}"
+            [ -n "${MHI_API_KEY:-}" ] && echo "MHI_API_KEY=${MHI_API_KEY}"
+            [ -n "${MHI_MODEL:-}" ] && echo "MHI_MODEL=${MHI_MODEL}"
+          } >> local.properties
+          echo "--- local.properties（已脱敏）---"
+          sed 's/MHI_API_KEY=.*/MHI_API_KEY=***/' local.properties
+
       - name: 运行单元测试
         run: ./gradlew testDebugUnitTest --stacktrace
 
