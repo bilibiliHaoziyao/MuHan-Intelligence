@@ -37,6 +37,19 @@ fun signingValue(propKey: String, envKey: String): String? =
     keystoreProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
         ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
 
+// 内置「慕寒智能」服务的接入信息。注意：真实值放在 gitignore 的 local.properties 中，
+// 只在此处引用属性名，绝不把明文写进源码。构建时注入 BuildConfig；API Key 拆分为两段，
+// 避免 APK 中出现一整段连续的 "sk-..." 明文。
+val localPropsFile = rootProject.file("local.properties")
+val localProps = Properties().apply {
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { load(it) }
+    }
+}
+
+fun mhiProp(key: String): String =
+    (localProps.getProperty(key) as? String)?.takeIf { it.isNotBlank() } ?: ""
+
 /**
  * Resolves a keystore path declared in [keystore.properties].
  *
@@ -77,11 +90,20 @@ android {
         applicationId = "com.muhan.intelligence"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.1"
+        versionCode = 11
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        // 内置慕寒智能服务的接入信息：仅引用 local.properties 的属性名，明文不进源码。
+        // API Key 拆成两段注入，进一步避免 APK 内出现连续明文。
+        val mhiKey = mhiProp("MHI_API_KEY")
+        val mhiKeyHalf = mhiKey.length / 2
+        buildConfigField("String", "MHI_BASE_URL", "\"${mhiProp("MHI_BASE_URL")}\"")
+        buildConfigField("String", "MHI_MODEL", "\"${mhiProp("MHI_MODEL")}\"")
+        buildConfigField("String", "MHI_API_KEY_A", "\"${mhiKey.take(mhiKeyHalf)}\"")
+        buildConfigField("String", "MHI_API_KEY_B", "\"${mhiKey.drop(mhiKeyHalf)}\"")
     }
 
     signingConfigs {

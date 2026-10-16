@@ -124,14 +124,22 @@ data class ProviderConfig(
     val id: String,
     val displayName: String,
     val baseUrl: String,
+    /** 真实请求模型 id（如 mimo-v2.6-flash）。 */
     val modelName: String,
     val flavor: ApiFlavor = ApiFlavor.OPENAI,
     val isActive: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val imageModel: String? = null,
+    /**
+     * 界面展示用的模型名（如 mhi-1.0-ultra）。为空时回退到 [modelName]。
+     * 慕寒智能等内置服务用它把内部模型 id 映射成对外品牌名。
+     */
+    val displayModelName: String? = null,
 ) {
     val sanitizedBaseUrl: String get() = baseUrl.trim().trimEnd('/')
     val supportsImageGeneration: Boolean get() = !imageModel.isNullOrBlank()
+    /** 聊天顶栏 / 模型列表展示的模型名，优先用 [displayModelName]。 */
+    val displayModelLabel: String get() = displayModelName?.takeIf { it.isNotBlank() } ?: modelName
 }
 
 /**

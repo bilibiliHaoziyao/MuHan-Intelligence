@@ -1,5 +1,6 @@
 package com.muhan.intelligence.data.repository
 
+import com.muhan.intelligence.BuildConfig
 import com.muhan.intelligence.data.local.ProviderDao
 import com.muhan.intelligence.data.local.ProviderEntity
 import com.muhan.intelligence.data.local.SecureKeyStore
@@ -11,6 +12,7 @@ import com.muhan.intelligence.domain.model.MessageStatus
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.StreamEvent
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 import javax.inject.Inject
@@ -148,6 +150,7 @@ class ProviderRepository @Inject constructor(
         isActive = isActive,
         createdAt = createdAt,
         imageModel = imageModel?.takeIf { it.isNotBlank() },
+        displayModelName = displayModelName?.takeIf { it.isNotBlank() },
     )
 
     private fun ProviderConfig.toEntity() = ProviderEntity(
@@ -159,5 +162,31 @@ class ProviderRepository @Inject constructor(
         isActive = isActive,
         createdAt = createdAt,
         imageModel = imageModel,
+        displayModelName = displayModelName,
     )
+
+    /**
+     * 首次启动时种子化内置「慕寒智能」服务，使其成为默认激活模型，跳过引导。
+     * 仅在数据库里还没有任何服务商时才写入（幂等；已装旧版且自配模型的用户不受影响）。
+     * 所有接入信息来自 BuildConfig（由 gitignore 的 local.properties 注入），明文不进源码。
+     */
+    suspend fun ensureDefaultProvider() {
+        if (providerDao.observeAll().first().isNotEmpty()) return
+        val baseUrl = BuildConfig.MHI_BASE_URL
+        val model = BuildConfig.MHI_MODEL
+        val apiKey = BuildConfig.MHI_API_KEY_A + BuildConfig.MHI_API_KEY_B
+        if (baseUrl.isBlank() || model.isBlank() || apiKey.isBlank()) return
+        saveProvider(
+            ProviderConfig(
+                id = "mhi-builtin",
+                displayName = "慕寒智能",
+                baseUrl = baseUrl,
+                modelName = model,
+                flavor = ApiFlavor.OPENAI,
+                isActive = true,
+                displayModelName = "mhi-1.0-ultra",
+            ),
+            apiKey = apiKey,
+        )
+    }
 }

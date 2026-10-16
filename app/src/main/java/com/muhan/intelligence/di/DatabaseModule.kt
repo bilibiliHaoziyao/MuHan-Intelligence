@@ -28,11 +28,18 @@ object DatabaseModule {
         }
     }
 
+    /** 0.6.1 → 1.0.0: provider 展示用模型名（display_model_name）。 */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE providers ADD COLUMN display_model_name TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MuHanDatabase =
         Room.databaseBuilder(context, MuHanDatabase::class.java, MuHanDatabase.NAME)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 

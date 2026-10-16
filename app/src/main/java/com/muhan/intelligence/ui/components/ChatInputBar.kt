@@ -25,12 +25,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +50,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.muhan.intelligence.domain.model.MessageAttachment
 
 /**
  * The composer.
@@ -75,14 +70,6 @@ fun ChatInputBar(
     enabled: Boolean,
     hint: String,
     modifier: Modifier = Modifier,
-    pendingAttachments: List<MessageAttachment> = emptyList(),
-    onRemoveAttachment: (String) -> Unit = {},
-    onPickImages: () -> Unit = {},
-    onPickFiles: () -> Unit = {},
-    thinkingEnabled: Boolean = false,
-    onToggleThinking: () -> Unit = {},
-    webSearchEnabled: Boolean = false,
-    onToggleWebSearch: () -> Unit = {},
     imageMode: Boolean = false,
     onToggleImageMode: () -> Unit = {},
     imageModeAvailable: Boolean = false,
@@ -101,36 +88,15 @@ fun ChatInputBar(
         color = scheme.surface,
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // Capability strip
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 4.dp, bottom = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CapabilityChip(
-                    icon = { Icon(Icons.Outlined.Add, null, Modifier.size(13.dp)) },
-                    label = "附件",
-                    active = pendingAttachments.isNotEmpty(),
-                    enabled = enabled && !isGenerating,
-                    onClick = onPickImages,
-                )
-                CapabilityChip(
-                    icon = { Icon(Icons.Outlined.Psychology, null, Modifier.size(13.dp)) },
-                    label = "深度思考",
-                    active = thinkingEnabled,
-                    enabled = enabled && !isGenerating,
-                    onClick = onToggleThinking,
-                )
-                CapabilityChip(
-                    icon = { Icon(Icons.Outlined.Public, null, Modifier.size(13.dp)) },
-                    label = "联网搜索",
-                    active = webSearchEnabled,
-                    enabled = enabled && !isGenerating,
-                    onClick = onToggleWebSearch,
-                )
-                if (imageModeAvailable) {
+            // 能力条：1.0.0 起移除深度思考 / 联网搜索 / 附件 / 文件入口，仅保留生图（按服务商能力出现）。
+            if (imageModeAvailable) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, bottom = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     CapabilityChip(
                         icon = { Icon(Icons.Outlined.Image, null, Modifier.size(13.dp)) },
                         label = "生图",
@@ -138,30 +104,6 @@ fun ChatInputBar(
                         enabled = enabled && !isGenerating,
                         onClick = onToggleImageMode,
                     )
-                }
-                Spacer(Modifier.weight(1f))
-                CapabilityChip(
-                    icon = { Icon(Icons.Outlined.Description, null, Modifier.size(13.dp)) },
-                    label = "文件",
-                    active = false,
-                    enabled = enabled && !isGenerating,
-                    onClick = onPickFiles,
-                )
-            }
-
-            AnimatedVisibility(visible = pendingAttachments.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 4.dp, bottom = 7.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    pendingAttachments.take(4).forEach { attachment ->
-                        PendingAttachmentTile(
-                            attachment = attachment,
-                            onRemove = { onRemoveAttachment(attachment.id) },
-                        )
-                    }
                 }
             }
 
@@ -217,7 +159,7 @@ fun ChatInputBar(
 
                 SendOrStopButton(
                     isGenerating = isGenerating,
-                    canSend = enabled && (value.isNotBlank() || pendingAttachments.isNotEmpty()),
+                    canSend = enabled && value.isNotBlank(),
                     onSend = {
                         focusManager.clearFocus()
                         onSend()
@@ -276,68 +218,6 @@ private fun CapabilityChip(
             style = MaterialTheme.typography.labelSmall,
             color = fg,
         )
-    }
-}
-
-@Composable
-private fun PendingAttachmentTile(
-    attachment: MessageAttachment,
-    onRemove: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .size(56.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(scheme.surfaceContainerHigh),
-    ) {
-        if (attachment.isImage) {
-            coil.compose.AsyncImage(
-                model = java.io.File(attachment.localPath),
-                contentDescription = attachment.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(56.dp),
-            )
-        } else {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Outlined.Description,
-                    null,
-                    tint = scheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = attachment.name,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(2.dp)
-                .size(16.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(scheme.scrim.copy(alpha = 0.6f))
-                .clickableNoIndication(onClick = onRemove),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Outlined.Close,
-                contentDescription = "移除附件",
-                tint = Color.White,
-                modifier = Modifier.size(11.dp),
-            )
-        }
     }
 }
 

@@ -465,7 +465,7 @@ private fun ProviderRow(
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = provider.modelName,
+                text = provider.displayModelLabel,
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant,
             )

@@ -70,20 +70,39 @@ class StartupViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            settingsRepository.preferences.collect { prefs ->
-                _state.update {
-                    it.copy(
-                        resolved = true,
-                        onboardingCompleted = prefs.onboardingCompleted,
-                        themeMode = prefs.themeMode,
-                        dynamicColor = prefs.dynamicColor,
-                    )
+            // 1.0.0：首次启动先种子化内置「慕寒智能」默认服务，确保 hasProvider 在 resolved
+            // 之前已确定，从而跳过引导直接进聊天（避免新装用户误入引导页的时序竞态）。
+            runCatching { providerRepository.ensureDefaultProvider() }
+
+            // 先读取一次初始值，确保 resolved 时 hasProvider 已是正确结果。
+            val prefs = settingsRepository.preferences.first()
+            val activeProvider = providerRepository.observeActiveProvider().first()
+            _state.update {
+                it.copy(
+                    resolved = true,
+                    onboardingCompleted = prefs.onboardingCompleted,
+                    themeMode = prefs.themeMode,
+                    dynamicColor = prefs.dynamicColor,
+                    hasProvider = activeProvider != null,
+                )
+            }
+
+            // 之后持续观察，保证主题/激活服务变更能即时生效。
+            launch {
+                settingsRepository.preferences.collect { p ->
+                    _state.update {
+                        it.copy(
+                            onboardingCompleted = p.onboardingCompleted,
+                            themeMode = p.themeMode,
+                            dynamicColor = p.dynamicColor,
+                        )
+                    }
                 }
             }
-        }
-        viewModelScope.launch {
-            providerRepository.observeActiveProvider().collect { provider ->
-                _state.update { it.copy(hasProvider = provider != null) }
+            launch {
+                providerRepository.observeActiveProvider().collect { provider ->
+                    _state.update { it.copy(hasProvider = provider != null) }
+                }
             }
         }
     }

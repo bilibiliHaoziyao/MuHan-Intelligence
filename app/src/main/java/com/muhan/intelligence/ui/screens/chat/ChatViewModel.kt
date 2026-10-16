@@ -7,7 +7,6 @@ import com.muhan.intelligence.data.local.AttachmentStore
 import com.muhan.intelligence.data.remote.RequestBodyFactory
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
-import com.muhan.intelligence.domain.model.ChatExtras
 import com.muhan.intelligence.domain.model.ChatMessage
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.GenerationSettings
@@ -47,8 +46,6 @@ data class ChatUiState(
     val infoBanner: String? = null,
     /** Attachments picked but not yet sent. */
     val pendingAttachments: List<MessageAttachment> = emptyList(),
-    /** Per-request capability switches (deep thinking / web search / image mode). */
-    val extras: ChatExtras = ChatExtras(),
     val imageMode: Boolean = false,
 ) {
     /** The user cannot send while a stream is in flight or nothing is configured. */
@@ -98,9 +95,6 @@ class ChatViewModel @Inject constructor(
     /** Coalesces DB writes while tokens stream in, to avoid hammering Disk I/O. */
     private var persistJob: Job? = null
 
-    /** Whether generation defaults have been seeded from settings at least once. */
-    private var extrasSeeded = false
-
     /**
      * 正在生成的那条消息的实时内容（内存覆盖层）。非空时优先于数据库版本渲染，
      * 这样流式 token 不被节流的数据库写入拖累。生成结束后置为 COMPLETE 版本，
@@ -117,23 +111,8 @@ class ChatViewModel @Inject constructor(
     private fun observeSettings() {
         viewModelScope.launch {
             settingsRepository.preferences.collect { prefs ->
-                _uiState.update { state ->
-                    state.copy(generation = prefs.generation).let { seeded ->
-                        if (extrasSeeded) {
-                            seeded
-                        } else {
-                            // First emission seeds the composer toggles; afterwards the
-                            // user's per-chat choices win over the settings defaults.
-                            extrasSeeded = true
-                            seeded.copy(
-                                extras = ChatExtras(
-                                    thinkingEnabled = prefs.generation.reasoningEnabled,
-                                    webSearchEnabled = prefs.generation.webSearchEnabled,
-                                ),
-                            )
-                        }
-                    }
-                }
+                // 1.0.0 起移除深度思考 / 联网搜索的逐次对话开关，统一关闭这两项能力。
+                _uiState.update { it.copy(generation = prefs.generation) }
             }
         }
     }
@@ -206,14 +185,6 @@ class ChatViewModel @Inject constructor(
     }
 
     // ------------------------------------------------------------------ toggles
-
-    fun toggleThinking() = _uiState.update {
-        it.copy(extras = it.extras.copy(thinkingEnabled = !it.extras.thinkingEnabled))
-    }
-
-    fun toggleWebSearch() = _uiState.update {
-        it.copy(extras = it.extras.copy(webSearchEnabled = !it.extras.webSearchEnabled))
-    }
 
     fun toggleImageMode() = _uiState.update { it.copy(imageMode = !it.imageMode) }
 
@@ -453,7 +424,6 @@ class ChatViewModel @Inject constructor(
         val state = _uiState.value
         val provider = state.activeProvider ?: return
         val settings = state.generation
-        val extras = state.extras
 
         val assistantId = UUID.randomUUID().toString()
         val placeholder = ChatMessage(
@@ -462,7 +432,7 @@ class ChatViewModel @Inject constructor(
             role = Role.ASSISTANT,
             content = "",
             status = MessageStatus.STREAMING,
-            modelName = provider.modelName,
+            modelName = provider.displayModelLabel,
         )
 
         // 占位气泡既落库（保证数据库里始终有这条，杜绝「回答消失」），也放进覆盖层
@@ -473,7 +443,7 @@ class ChatViewModel @Inject constructor(
         logRepository.info(
             "Chat",
             "开始生成回复 conversationId=${state.conversationId}，服务商=${provider.displayName}，" +
-                "模型=${provider.modelName}，历史消息数=${history.size}，深度思考=${extras.thinkingEnabled}，联网搜索=${extras.webSearchEnabled}",
+                "模型=${provider.displayModelLabel}（实际=${provider.modelName}），历史消息数=${history.size}",
         )
 
         generationJob = viewModelScope.launch {
@@ -489,6 +459,7 @@ class ChatViewModel @Inject constructor(
                 // 0.2.0 Fix: 出站构建（附件读取/base64 编码）也放进保护内——
                 // 此前它在外面，任何异常都会以未捕获形式杀死进程。
                 val outbound = buildOutboundMessages(history, settings)
+                // 1.0.0：深度思考 / 联网搜索入口已移除，统一关闭。
                 providerRepository.streamCompletion(
                     provider = provider,
                     messages = outbound,
@@ -496,8 +467,8 @@ class ChatViewModel @Inject constructor(
                     temperature = settings.temperature,
                     topP = settings.topP,
                     maxTokens = settings.maxTokens,
-                    thinkingEnabled = extras.thinkingEnabled,
-                    webSearchEnabled = extras.webSearchEnabled,
+                    thinkingEnabled = false,
+                    webSearchEnabled = false,
                 ).collect { event ->
                     when (event) {
                         is StreamEvent.ContentDelta -> {

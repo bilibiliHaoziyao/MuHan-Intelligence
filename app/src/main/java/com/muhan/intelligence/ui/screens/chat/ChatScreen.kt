@@ -86,19 +86,6 @@ fun ChatScreen(
     var searchQuery by remember { mutableStateOf("") }
     var history by remember { mutableStateOf(emptyList<com.muhan.intelligence.domain.model.Conversation>()) }
 
-    // Attachment pickers: gallery images via the Photo Picker, arbitrary files via
-    // the document picker. Both funnel into the same pending-attachments queue.
-    val imagePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(maxItems = 4),
-    ) { uris ->
-        if (uris.isNotEmpty()) viewModel.addAttachments(uris)
-    }
-    val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents(),
-    ) { uris ->
-        if (uris.isNotEmpty()) viewModel.addAttachments(uris)
-    }
-
     // Drawer history: separate flow so search can re-query without touching chat state.
     val historyViewModel = viewModel
     LaunchedEffect(isSearching, searchQuery) {
@@ -144,7 +131,7 @@ fun ChatScreen(
         ) {
             ChatTopBar(
                 title = state.conversation?.title ?: "新对话",
-                subtitle = state.activeProvider?.let { "${it.displayName} · ${it.modelName}" },
+                subtitle = state.activeProvider?.let { "${it.displayName} · ${it.displayModelLabel}" },
                 isGenerating = state.isGenerating,
                 onMenu = { scope.launch { drawerState.open() } },
                 onNewChat = onNewChat,
@@ -192,20 +179,6 @@ fun ChatScreen(
                 isGenerating = state.isGenerating,
                 enabled = true,
                 hint = if (state.hasProvider) "给慕寒智能发送消息…" else "请先在设置中配置模型服务",
-                pendingAttachments = state.pendingAttachments,
-                onRemoveAttachment = viewModel::removeAttachment,
-                onPickImages = {
-                    imagePicker.launch(
-                        androidx.activity.result.PickVisualMediaRequest(
-                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
-                        ),
-                    )
-                },
-                onPickFiles = { filePicker.launch("*/*") },
-                thinkingEnabled = state.extras.thinkingEnabled,
-                onToggleThinking = viewModel::toggleThinking,
-                webSearchEnabled = state.extras.webSearchEnabled,
-                onToggleWebSearch = viewModel::toggleWebSearch,
                 imageMode = state.imageMode,
                 onToggleImageMode = viewModel::toggleImageMode,
                 imageModeAvailable = state.supportsImageGeneration,

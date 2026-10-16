@@ -18,8 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,7 +40,7 @@ import com.muhan.intelligence.ui.components.clickableNoIndication
 
 private const val GITHUB_URL = "https://github.com/bilibiliHaoziyao/MuHan-Intelligence"
 private const val ISSUES_URL = "$GITHUB_URL/issues"
-private const val LICENSE_URL = "$GITHUB_URL/blob/main/LICENSE"
+private const val BILIBILI_URL = "https://b23.tv/6UtmCB0"
 
 @Composable
 fun AboutScreen(
@@ -113,10 +113,10 @@ fun AboutScreen(
                 )
                 Divider()
                 LinkRow(
-                    icon = Icons.Outlined.Description,
-                    title = "开源协议",
-                    subtitle = "MIT License",
-                    onClick = { runCatching { uriHandler.openUri(LICENSE_URL) } },
+                    icon = Icons.Outlined.PlayCircle,
+                    title = "我的哔哩哔哩",
+                    subtitle = "b23.tv/6UtmCB0",
+                    onClick = { runCatching { uriHandler.openUri(BILIBILI_URL) } },
                 )
             }
 

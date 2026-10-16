@@ -63,4 +63,6 @@ data class ProviderEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long,
     /** Optional image-generation model on the same account (OpenAI-compatible). */
     @ColumnInfo(name = "image_model") val imageModel: String? = null,
+    /** 界面展示用的模型名；为空时回退到 model_name。 */
+    @ColumnInfo(name = "display_model_name") val displayModelName: String? = null,
 )
