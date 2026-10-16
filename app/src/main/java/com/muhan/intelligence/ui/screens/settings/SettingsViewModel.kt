@@ -12,6 +12,7 @@ import com.muhan.intelligence.domain.model.ApiFlavor
 import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ConnectionTestResult
 import com.muhan.intelligence.domain.model.GenerationSettings
+import com.muhan.intelligence.domain.model.BUILTIN_PROVIDER_ID
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -149,6 +150,8 @@ data class ProviderEditorUiState(
     val error: String? = null,
     val saved: Boolean = false,
     val deleted: Boolean = false,
+    /** 是否为内置「慕寒智能」预置服务（不可编辑/删除）。 */
+    val isBuiltIn: Boolean = false,
 ) {
     val isEditing: Boolean get() = providerId != null
 
@@ -171,7 +174,11 @@ class ProviderEditorViewModel @Inject constructor(
         savedStateHandle.get<String>("providerId")?.takeIf { it.isNotBlank() }
 
     private val _state = MutableStateFlow(
-        ProviderEditorUiState(providerId = providerId, isLoading = providerId != null),
+        ProviderEditorUiState(
+            providerId = providerId,
+            isLoading = providerId != null,
+            isBuiltIn = providerId == BUILTIN_PROVIDER_ID,
+        ),
     )
     val state: StateFlow<ProviderEditorUiState> = _state.asStateFlow()
 

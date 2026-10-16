@@ -77,6 +77,46 @@ fun ProviderEditorScreen(
         if (state.deleted) onBack()
     }
 
+    // 内置「慕寒智能」为系统预置服务：不可编辑或删除，仅展示说明后退出。
+    if (state.isBuiltIn) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scheme.background)
+                .statusBarsPadding(),
+        ) {
+            SettingsTopBar(title = "内置模型服务", onBack = onBack)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(48.dp))
+                Icon(
+                    imageVector = Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(40.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "慕寒智能（内置预置）",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = scheme.onSurface,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "该服务由应用预置、开箱即用，不支持编辑或删除。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()

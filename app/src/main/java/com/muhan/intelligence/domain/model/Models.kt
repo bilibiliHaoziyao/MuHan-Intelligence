@@ -100,6 +100,16 @@ data class Conversation(
     val messageCount: Int = 0,
 )
 
+/**
+ * 内置「慕寒智能」默认服务的固定 id。
+ * 由 [com.muhan.intelligence.data.repository.ProviderRepository.ensureDefaultProvider]
+ * 在首次启动时种子化；界面据此识别并锁定该服务（隐藏接入信息、禁止编辑/删除）。
+ */
+const val BUILTIN_PROVIDER_ID = "mhi-builtin"
+
+/** 是否为内置「慕寒智能」预置服务。 */
+val ProviderConfig.isBuiltIn: Boolean get() = id == BUILTIN_PROVIDER_ID
+
 /** Provider wire-format flavour. */
 enum class ApiFlavor {
     /** OpenAI-compatible `/chat/completions` (DeepSeek, Moonshot, Zhipu, ...). */

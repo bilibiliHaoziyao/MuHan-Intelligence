@@ -440,11 +440,11 @@ class ChatViewModel @Inject constructor(
         streamingMessage.value = placeholder
         _uiState.update { it.copy(isGenerating = true, errorBanner = null) }
 
-        logRepository.info(
-            "Chat",
-            "开始生成回复 conversationId=${state.conversationId}，服务商=${provider.displayName}，" +
-                "模型=${provider.displayModelLabel}（实际=${provider.modelName}），历史消息数=${history.size}",
-        )
+            logRepository.info(
+                "Chat",
+                "开始生成回复 conversationId=${state.conversationId}，服务商=${provider.displayName}，" +
+                    "模型=${provider.displayModelLabel}，历史消息数=${history.size}",
+            )
 
         generationJob = viewModelScope.launch {
             // 0.4.0：先把占位落库。这样 updateStreamingContent / finishMessage 都有行可改，

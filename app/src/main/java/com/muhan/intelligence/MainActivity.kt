@@ -42,9 +42,9 @@ import javax.inject.Inject
 /**
  * Decides where to send the user on cold start.
  *
- * Onboarding appears only when it has never been completed *and* no provider is
- * configured — someone who skipped the wizard but later added a key should not be
- * dragged back into it.
+ * Onboarding appears whenever it has not been completed. The built-in 「慕寒智能」
+ * is seeded as the default provider on first launch, so the wizard offers an
+ * "开箱即用" path instead of forcing a duplicate configuration.
  *
  * The preference flow is collected *continuously* (not via [kotlinx.coroutines.flow.first]):
  * the theme picker in settings must take effect immediately, and it drives this
@@ -186,7 +186,9 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
             // configured user would flash the onboarding screen on every launch.
             if (state.resolved) {
                 val navController = rememberNavController()
-                val start = if (!state.onboardingCompleted && !state.hasProvider) {
+                // 首次使用向导：未完成引导即进入向导（内置「慕寒智能」已预置，
+                // 向导会提供「开箱即用」路径，不会强制重复配置）。
+                val start = if (!state.onboardingCompleted) {
                     Routes.ONBOARDING
                 } else {
                     Routes.CHAT_START

@@ -4,11 +4,10 @@
 
 **由你自己掌管 API Key 的原生 Android AI 对话应用**
 
-[![version](https://img.shields.io/badge/version-0.2.0--Fix2-6D5BF6)](../../releases)
+[![version](https://img.shields.io/badge/version-1.0.1-6D5BF6)](../../releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)](https://developer.android.com/jetpack/compose)
-[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 </div>
 
@@ -69,15 +68,15 @@
 
 **新手引导**
 
-首次启动进入向导，第一步先选择身份：**我是菜鸟**（每一步都给出最简单直白的说明与推荐配置）或 **我是迪克**（保留完整自定义项，并额外提供深度思考、联网搜索等高级默认值设置）。之后为：选择服务商 → 填写凭据 → **连接测试**。只有真实请求成功才会保存配置；向导可随时跳过，也能从设置里重新运行。
+首次启动进入向导，第一步先选择身份：**我是菜鸟**（每一步都给出最简单直白的说明与推荐配置）或 **我是迪克**（保留完整自定义项，并额外提供深度思考、联网搜索等高级默认值设置）。内置的「慕寒智能」已为你预配置、开箱即用，向导里也可一键添加自己的模型服务。之后为：选择服务商 → 填写凭据 → **连接测试**。只有真实请求成功才会保存配置；向导可随时跳过，也能从设置里重新运行。
 
 ## 下载
 
-前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-0.2.0Fix2-release.apk` 直接安装。
+前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-1.0.1-release.apk` 直接安装。
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MuHan-Intelligence-0.2.0Fix2-release.apk` | 约 2.5 MB | 混淆压缩后的发布版（自 0.2.0 Fix2 起不再提供 Debug APK） |
+| `MuHan-Intelligence-1.0.1-release.apk` | 约 2.5 MB | 混淆压缩后的发布版（自 0.2.0 Fix2 起不再提供 Debug APK） |
 | `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
 
 核对下载完整性：
@@ -88,7 +87,7 @@ sha256sum -c SHA256SUMS.txt
 
 > Release APK 使用仓库内公开的签名证书签名，仅供个人测试分发，请勿用于正式上架。
 
-> 首次使用需要自备 API Key。没有的话推荐注册 [DeepSeek 开放平台](https://platform.deepseek.com/)，注册即送额度且价格低廉；也可以选择 Ollama 在本地跑模型。
+> 内置「慕寒智能」已开箱即用，无需自备 Key 即可直接对话；如需接入自己的模型服务，可在「设置 → 模型服务」中添加。
 
 ## 界面
 
@@ -230,11 +229,9 @@ app/src/main/java/com/muhan/intelligence/
 
 ## 贡献
 
-欢迎提交 Issue 与 PR。报告 Bug 请附上机型、Android 版本与复现步骤；提交代码前请确保 `./gradlew testDebugUnitTest` 与 `./gradlew assembleDebug` 均通过。
+如有问题或建议，欢迎反馈。报告 Bug 请附上机型、Android 版本与复现步骤。
 
 ## 协议
-
-[MIT License](LICENSE)
 
 > 慕寒智能与 DeepSeek、Kimi、智谱、OpenAI、Anthropic、Google 等模型服务商均无隶属关系，应用内出现的服务商名称仅用于指示接口兼容性。
 

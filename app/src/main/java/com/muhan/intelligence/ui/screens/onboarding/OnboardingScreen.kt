@@ -113,7 +113,7 @@ fun OnboardingScreen(
                         viewModel = viewModel,
                         onDone = onFinished,
                     )
-                    OnboardingStep.DONE -> DoneStep(onEnter = onFinished)
+                    OnboardingStep.DONE -> DoneStep(onFinish = onFinished, viewModel = viewModel)
                 }
             }
         }
@@ -241,9 +241,9 @@ private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel
             PersonaCard(
                 title = "我是菜鸟",
                 description = if (compact) {
-                    "第一次用？选这个，全程不用懂技术。"
+                    "第一次用？选这个，内置已配好。"
                 } else {
-                    "第一次用 AI 应用？选这个。\n引导会非常简单：选服务 → 贴 Key → 完成，全程不需要懂任何技术名词。"
+                    "第一次用 AI 应用？选这个。\n内置的「慕寒智能」已帮你配好，打开就能聊；想用自己的模型也能在引导里一键添加。"
                 },
                 selected = state.persona == com.muhan.intelligence.domain.model.Persona.ROOKIE,
                 emoji = "🐣",
@@ -350,7 +350,7 @@ private fun ProviderStep(state: OnboardingUiState, viewModel: OnboardingViewMode
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.isRookie) {
-                    "挑一个就行了。推荐「深度求索」，注册就送免费额度"
+                    "慕寒智能已为你预配置、开箱即用；你也可以在这里添加自己的模型服务"
                 } else {
                     "挑选一个常用服务商快速开始，或在下方选择自定义接入"
                 },
@@ -366,6 +366,16 @@ private fun ProviderStep(state: OnboardingUiState, viewModel: OnboardingViewMode
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
+            // 内置「慕寒智能」：已预置、开箱即用，作为向导的优先默认项。
+            if (state.builtInReady) {
+                item {
+                    BuiltInCard(
+                        selected = state.choice == ProviderChoice.BuiltIn,
+                        onClick = { viewModel.selectBuiltIn() },
+                    )
+                }
+            }
+
             items(viewModel.presets, key = { it.id }) { preset ->
                 PresetCard(
                     preset = preset,
@@ -457,6 +467,61 @@ private fun PresetCard(
             )
         }
 
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = scheme.primary,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BuiltInCard(selected: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (selected) scheme.primaryContainer else scheme.surfaceContainerLow)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) scheme.primary else scheme.outlineVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(16.dp),
+            )
+            .clickableNoIndication(onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (selected) scheme.primary else scheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "慕",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (selected) scheme.onPrimary else scheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "慕寒智能（内置预置）",
+                style = MaterialTheme.typography.titleSmall,
+                color = if (selected) scheme.onPrimaryContainer else scheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "开箱即用 · 已为你预配置好",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.CheckCircle,
@@ -1086,7 +1151,7 @@ private fun ResultCard(success: Boolean, title: String, detail: String) {
 // -------------------------------------------------------------- step 5: done
 
 @Composable
-private fun DoneStep(onEnter: () -> Unit) {
+private fun DoneStep(onFinish: () -> Unit, viewModel: OnboardingViewModel) {
     val scheme = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
@@ -1129,7 +1194,7 @@ private fun DoneStep(onEnter: () -> Unit) {
         Spacer(Modifier.height(36.dp))
         PrimaryButton(
             text = "开始对话",
-            onClick = onEnter,
+            onClick = { viewModel.finish(onFinish) },
             modifier = Modifier.fillMaxWidth(),
         )
     }

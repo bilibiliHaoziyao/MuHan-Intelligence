@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.ThemeMode
+import com.muhan.intelligence.domain.model.isBuiltIn
 import com.muhan.intelligence.ui.components.SectionLabel
 import com.muhan.intelligence.ui.components.clickableNoIndication
 
@@ -465,7 +466,7 @@ private fun ProviderRow(
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = provider.displayModelLabel,
+                text = if (provider.isBuiltIn) "内置 · 开箱即用" else provider.displayModelLabel,
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -564,7 +565,7 @@ fun VersionFooter(versionName: String) {
             )
             Spacer(Modifier.width(5.dp))
             Text(
-                text = "MIT License · 开源项目",
+                text = "专有软件 · 保留所有权利",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )

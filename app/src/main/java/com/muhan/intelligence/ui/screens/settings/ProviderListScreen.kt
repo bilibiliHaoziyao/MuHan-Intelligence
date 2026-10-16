@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.domain.model.ProviderConfig
+import com.muhan.intelligence.domain.model.isBuiltIn
 import com.muhan.intelligence.ui.components.clickableNoIndication
 
 /** Lists configured providers; tapping a row opens the editor. */
@@ -78,8 +79,8 @@ fun ProviderListScreen(
                     maskedKey = maskedKeys[provider.id] ?: "",
                     active = provider.id == state.activeProviderId,
                     onActivate = { viewModel.activateProvider(provider.id) },
-                    onEdit = { onEditProvider(provider.id) },
-                    onDelete = { deleteTarget = provider },
+                    onEdit = { if (!provider.isBuiltIn) onEditProvider(provider.id) },
+                    onDelete = { if (!provider.isBuiltIn) deleteTarget = provider },
                 )
             }
 
@@ -151,6 +152,7 @@ private fun ProviderCard(
     onDelete: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val builtIn = provider.isBuiltIn
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -161,7 +163,8 @@ private fun ProviderCard(
                 color = if (active) scheme.primary else scheme.outlineVariant.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(16.dp),
             )
-            .clickableNoIndication(onClick = onEdit)
+            // 内置「慕寒智能」为系统预置服务：不响应点击、不可编辑/删除。
+            .then(if (builtIn) Modifier else Modifier.clickableNoIndication(onClick = onEdit))
             .padding(15.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,10 +207,25 @@ private fun ProviderCard(
                             )
                         }
                     }
+                    if (builtIn) {
+                        Spacer(Modifier.width(7.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(scheme.surfaceContainerHighest)
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "内置",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = provider.modelName,
+                    text = if (builtIn) "内置 · 开箱即用" else provider.modelName,
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                 )
@@ -222,27 +240,32 @@ private fun ProviderCard(
             }
         }
 
+        // 内置服务不展示接口地址 / API Key / 协议等接入信息。
+        if (!builtIn) {
+            Spacer(Modifier.height(12.dp))
+            InfoLine("接口地址", provider.baseUrl)
+            if (maskedKey.isNotBlank()) InfoLine("API Key", maskedKey)
+            InfoLine(
+                "协议",
+                when (provider.flavor) {
+                    com.muhan.intelligence.domain.model.ApiFlavor.OPENAI -> "OpenAI 兼容"
+                    com.muhan.intelligence.domain.model.ApiFlavor.ANTHROPIC -> "Anthropic Messages"
+                    com.muhan.intelligence.domain.model.ApiFlavor.GEMINI -> "Google Gemini"
+                },
+            )
+        }
+
         Spacer(Modifier.height(12.dp))
 
-        InfoLine("接口地址", provider.baseUrl)
-        if (maskedKey.isNotBlank()) InfoLine("API Key", maskedKey)
-        InfoLine(
-            "协议",
-            when (provider.flavor) {
-                com.muhan.intelligence.domain.model.ApiFlavor.OPENAI -> "OpenAI 兼容"
-                com.muhan.intelligence.domain.model.ApiFlavor.ANTHROPIC -> "Anthropic Messages"
-                com.muhan.intelligence.domain.model.ApiFlavor.GEMINI -> "Google Gemini"
-            },
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!active) {
-                CardAction("设为使用中", onClick = onActivate)
+        // 内置服务不支持编辑 / 删除。
+        if (!builtIn) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!active) {
+                    CardAction("设为使用中", onClick = onActivate)
+                }
+                CardAction("编辑", onClick = onEdit)
+                CardAction("删除", danger = true, onClick = onDelete)
             }
-            CardAction("编辑", onClick = onEdit)
-            CardAction("删除", danger = true, onClick = onDelete)
         }
     }
 }

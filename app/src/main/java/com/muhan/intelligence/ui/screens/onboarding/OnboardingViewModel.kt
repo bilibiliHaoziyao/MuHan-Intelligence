@@ -8,6 +8,7 @@ import com.muhan.intelligence.data.remote.ProviderPresets
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
 import com.muhan.intelligence.domain.model.ApiFlavor
+import com.muhan.intelligence.domain.model.BUILTIN_PROVIDER_ID
 import com.muhan.intelligence.domain.model.ConnectionTestResult
 import com.muhan.intelligence.domain.model.ProviderConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +27,8 @@ enum class OnboardingStep { PERSONA, PROVIDER, CREDENTIALS, VERIFY, DONE }
 sealed interface ProviderChoice {
     data object Preset : ProviderChoice
     data object Custom : ProviderChoice
+    /** 使用内置「慕寒智能」（已预置、开箱即用），完成时不新建服务。 */
+    data object BuiltIn : ProviderChoice
 }
 
 data class OnboardingUiState(
@@ -43,6 +46,8 @@ data class OnboardingUiState(
     val testResult: ConnectionTestResult? = null,
     val errorMessage: String? = null,
     val savedProvider: ProviderConfig? = null,
+    /** 内置「慕寒智能」是否已就绪（用于向导优先提供「开箱即用」选项）。 */
+    val builtInReady: Boolean = false,
     /** 迪克模式的默认能力开关（完成引导时写入设置）。 */
     val advancedThinking: Boolean = false,
     val advancedWebSearch: Boolean = false,
@@ -69,6 +74,17 @@ class OnboardingViewModel @Inject constructor(
 
     val presets: List<ProviderPreset> = ProviderPresets.all
 
+    init {
+        // 内置「慕寒智能」已预置并激活时，向导默认走「开箱即用」路径，
+        // 避免已配置好的用户被强制重复填写凭据。
+        viewModelScope.launch {
+            val builtInActive = providerRepository.getActiveProvider()?.id == BUILTIN_PROVIDER_ID
+            if (builtInActive) {
+                _state.update { it.copy(builtInReady = true, choice = ProviderChoice.BuiltIn) }
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- navigation
 
     fun goTo(step: OnboardingStep) {
@@ -86,11 +102,18 @@ class OnboardingViewModel @Inject constructor(
                     OnboardingStep.PROVIDER
                 }
             OnboardingStep.PROVIDER ->
-                if (_state.value.choice == ProviderChoice.Preset && _state.value.selectedPreset == null) {
-                    _state.update { it.copy(errorMessage = "请先选择一个模型服务，或选择「自定义接入」。") }
-                    return
-                } else {
-                    OnboardingStep.CREDENTIALS
+                when (_state.value.choice) {
+                    ProviderChoice.BuiltIn -> OnboardingStep.DONE
+                    ProviderChoice.Preset ->
+                        if (_state.value.selectedPreset == null) {
+                            _state.update {
+                                it.copy(errorMessage = "请先选择一个模型服务，或选择「使用内置慕寒智能」。")
+                            }
+                            return
+                        } else {
+                            OnboardingStep.CREDENTIALS
+                        }
+                    ProviderChoice.Custom -> OnboardingStep.CREDENTIALS
                 }
             OnboardingStep.CREDENTIALS ->
                 if (!_state.value.credentialsValid) {
@@ -164,6 +187,18 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
+    /** 选择内置「慕寒智能」——开箱即用，完成时不新建服务。 */
+    fun selectBuiltIn() {
+        _state.update {
+            it.copy(
+                choice = ProviderChoice.BuiltIn,
+                selectedPreset = null,
+                errorMessage = null,
+                testResult = null,
+            )
+        }
+    }
+
     // -------------------------------------------------------------------- inputs
 
     fun onDisplayNameChange(value: String) = _state.update { it.copy(displayName = value, errorMessage = null) }
@@ -228,6 +263,16 @@ class OnboardingViewModel @Inject constructor(
         val current = _state.value
         if (current.savedProvider != null) {
             onSuccess()
+            return
+        }
+
+        // 内置「慕寒智能」路径：已预置好，无需新建服务，直接标记引导完成。
+        if (current.choice == ProviderChoice.BuiltIn) {
+            viewModelScope.launch {
+                settingsRepository.completeOnboarding()
+                _state.update { it.copy(step = OnboardingStep.DONE, isTesting = false) }
+                onSuccess()
+            }
             return
         }
 

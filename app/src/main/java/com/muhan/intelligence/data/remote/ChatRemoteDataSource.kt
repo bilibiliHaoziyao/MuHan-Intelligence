@@ -5,6 +5,7 @@ import com.muhan.intelligence.domain.model.ConnectionTestResult
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.Role
 import com.muhan.intelligence.domain.model.StreamEvent
+import com.muhan.intelligence.domain.model.isBuiltIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -75,7 +76,9 @@ class ChatRemoteDataSource @Inject constructor(
 
         logRepository.info(
             "Net",
-            "发起流式请求 base=${provider.sanitizedBaseUrl} 模型=${provider.modelName} " +
+            // 内置「慕寒智能」不暴露真实接口地址与模型 id（避免日志泄露底层 mimo 模型）。
+            "发起流式请求 ${if (provider.isBuiltIn) "内置慕寒智能" else "base=${provider.sanitizedBaseUrl}"} " +
+                "模型=${provider.displayModelLabel} " +
                 "思考=$thinkingEnabled 搜索=$webSearchEnabled 消息数=${messages.size}",
         )
         val call = client.newCall(request)
@@ -84,7 +87,9 @@ class ChatRemoteDataSource @Inject constructor(
 
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                logRepository.warn("Net", "请求失败：${call.request().url}", e)
+                // 内置服务不在日志暴露真实地址。
+                val endpoint = if (provider.isBuiltIn) "内置慕寒智能" else call.request().url.toString()
+                logRepository.warn("Net", "请求失败：$endpoint", e)
                 if (!finished) {
                     finished = true
                     trySend(StreamEvent.Failed(ApiErrorMapper.describe(e)))
@@ -113,10 +118,12 @@ class ChatRemoteDataSource @Inject constructor(
 
             private fun handleResponse(response: Response) {
                 response.use { res ->
-                logRepository.info("Net", "收到 HTTP ${res.code} @ ${res.request.url} 思考=$thinkingEnabled 搜索=$webSearchEnabled")
+                // 内置服务不在日志暴露真实地址（避免泄露底层 mimo 接口）。
+                val endpoint = if (provider.isBuiltIn) "内置慕寒智能" else res.request.url.toString()
+                logRepository.info("Net", "收到 HTTP ${res.code} @ $endpoint 思考=$thinkingEnabled 搜索=$webSearchEnabled")
                 if (!res.isSuccessful) {
                     val body = runCatching { res.body?.string() }.getOrNull()
-                    logRepository.warn("Net", "HTTP ${res.code} @ ${res.request.url} body=${body?.take(500)}")
+                    logRepository.warn("Net", "HTTP ${res.code} @ $endpoint body=${body?.take(500)}")
                         trySend(
                             StreamEvent.Failed(
                                 ApiErrorMapper.describe(
