@@ -53,6 +53,14 @@ interface ConversationDao {
 
     @Query("SELECT COUNT(*) FROM messages WHERE conversation_id = :id")
     suspend fun countMessages(id: String): Int
+
+    /**
+     * 只更新消息计数，绝不用 [upsert]：后者是 REPLACE 策略（先删后插整行），
+     * 而 messages 表对 conversations 建有 ON DELETE CASCADE 外键，DELETE 整行
+     * conversation 会级联删光该会话全部消息——这正是「生成完成后记录消失」的根因。
+     */
+    @Query("UPDATE conversations SET message_count = :count WHERE id = :id")
+    suspend fun updateMessageCount(id: String, count: Int)
 }
 
 @Dao

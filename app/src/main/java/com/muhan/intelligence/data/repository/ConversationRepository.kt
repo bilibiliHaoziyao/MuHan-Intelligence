@@ -4,6 +4,7 @@ import com.muhan.intelligence.data.local.ConversationDao
 import com.muhan.intelligence.data.local.ConversationEntity
 import com.muhan.intelligence.data.local.MessageDao
 import com.muhan.intelligence.data.local.MessageEntity
+import com.muhan.intelligence.data.local.LogRepository
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.MessageStatus
 import com.muhan.intelligence.domain.model.Role
@@ -20,6 +21,7 @@ class ConversationRepository @Inject constructor(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
     private val attachmentStore: com.muhan.intelligence.data.local.AttachmentStore,
+    private val logRepository: LogRepository,
 ) {
 
     fun observeConversations(): Flow<List<Conversation>> =
@@ -78,6 +80,8 @@ class ConversationRepository @Inject constructor(
     suspend fun appendMessage(message: ChatMessage) {
         messageDao.upsert(message.toEntity())
         conversationDao.touch(message.conversationId, System.currentTimeMillis())
+        val total = conversationDao.countMessages(message.conversationId)
+        logRepository.info("DB", "追加消息 id=${message.id}，角色=${message.role}，会话=${message.conversationId}，会话当前消息数=$total")
     }
 
     suspend fun updateStreamingContent(
@@ -94,8 +98,12 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun finishMessage(messageId: String, content: String, reasoning: String, tokenCount: Int?) {
+        val entity = messageDao.getById(messageId) ?: run {
+            logRepository.warn("DB", "finishMessage 未找到占位消息 id=$messageId，无法落库（可能导致回答不显示）")
+            return
+        }
         messageDao.upsert(
-            (messageDao.getById(messageId) ?: return).copy(
+            entity.copy(
                 content = content,
                 reasoningContent = reasoning,
                 status = MessageStatus.COMPLETE.name,
@@ -103,18 +111,24 @@ class ConversationRepository @Inject constructor(
                 tokenCount = tokenCount,
             ),
         )
-        messageDao.getById(messageId)?.let { conversationDao.touch(it.conversationId, System.currentTimeMillis()) }
+        conversationDao.touch(entity.conversationId, System.currentTimeMillis())
+        val total = conversationDao.countMessages(entity.conversationId)
+        logRepository.info("DB", "AI回复落库完成 id=$messageId，会话=${entity.conversationId}，会话当前消息数=$total")
     }
 
     suspend fun failMessage(messageId: String, error: String) {
         messageDao.updateStatus(messageId, MessageStatus.FAILED.name, error)
     }
 
-    suspend fun deleteMessage(messageId: String) = messageDao.deleteById(messageId)
+    suspend fun deleteMessage(messageId: String) {
+        messageDao.deleteById(messageId)
+        logRepository.info("DB", "删除消息 id=$messageId")
+    }
 
     /** Removes [messageId] and every message that came after it (keeps the ones before). */
     suspend fun truncateFrom(messageId: String, conversationId: String) {
         messageDao.deleteFrom(conversationId, messageId)
+        logRepository.info("DB", "截断消息（含其后）messageId=$messageId，会话=$conversationId")
     }
 
     /** Marks any leftover STREAMING rows (e.g. after a mid-stream process kill) as COMPLETE. */
@@ -127,13 +141,18 @@ class ConversationRepository @Inject constructor(
         messageDao.getById(messageId)?.toDomain()
 
     suspend fun loadHistory(conversationId: String): List<ChatMessage> =
-        messageDao.getForConversation(conversationId).map { it.toDomain() }
+        messageDao.getForConversation(conversationId).map { it.toDomain() }.also { list ->
+            val roles = list.groupingBy { it.role }.eachCount()
+            logRepository.info("DB", "加载历史 conversationId=$conversationId，返回条数=${list.size}，角色分布=$roles")
+        }
 
     suspend fun refreshMessageCount(conversationId: String) {
         val count = conversationDao.countMessages(conversationId)
-        conversationDao.getById(conversationId)?.let {
-            conversationDao.upsert(it.copy(messageCount = count))
-        }
+        // 关键修复：只 UPDATE 计数，绝不能用 upsert（REPLACE 语义会先删后插整行
+        // conversation，而 messages 表对其建有 ON DELETE CASCADE，从而级联删光该会话
+        // 全部消息——这正是「生成完成后记录消失」的根因）。
+        conversationDao.updateMessageCount(conversationId, count)
+        logRepository.info("DB", "刷新消息计数 conversationId=$conversationId，count=$count")
     }
 
     private fun ConversationEntity.toDomain() = Conversation(

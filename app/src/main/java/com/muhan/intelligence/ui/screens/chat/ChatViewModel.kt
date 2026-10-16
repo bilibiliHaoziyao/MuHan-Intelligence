@@ -174,10 +174,21 @@ class ChatViewModel @Inject constructor(
             }
 
             // 数据库消息（顺序/持久化权威） × 流式覆盖层（正在生成那条的实时内容）。
+            var lastDbCount = -1
             combine(conversationRepository.observeMessages(id), streamingMessage) { dbMessages, live ->
+                if (dbMessages.size != lastDbCount) {
+                    lastDbCount = dbMessages.size
+                    logRepository.info(
+                        "DB",
+                        "消息流刷新 conversationId=$id，DB消息条数=${dbMessages.size}，" +
+                            "live状态=${live?.status ?: "无"}",
+                    )
+                }
                 applyStreamingOverride(dbMessages, live)
             }
                 .catch { e ->
+                    // 此前异常被静默吞掉，无法定位；现在记录完整堆栈。
+                    logRepository.error("Chat", "消息流异常 conversationId=$id", e)
                     _uiState.update { it.copy(isLoading = false, errorBanner = e.message) }
                 }
                 .collect { merged ->

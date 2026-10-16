@@ -73,6 +73,11 @@ class ChatRemoteDataSource @Inject constructor(
             webSearchEnabled = webSearchEnabled,
         )
 
+        logRepository.info(
+            "Net",
+            "发起流式请求 base=${provider.sanitizedBaseUrl} 模型=${provider.modelName} " +
+                "思考=$thinkingEnabled 搜索=$webSearchEnabled 消息数=${messages.size}",
+        )
         val call = client.newCall(request)
         val parser = SseStreamParser(provider.flavor)
         var finished = false
@@ -108,6 +113,7 @@ class ChatRemoteDataSource @Inject constructor(
 
             private fun handleResponse(response: Response) {
                 response.use { res ->
+                logRepository.info("Net", "收到 HTTP ${res.code} @ ${res.request.url} 思考=$thinkingEnabled 搜索=$webSearchEnabled")
                 if (!res.isSuccessful) {
                     val body = runCatching { res.body?.string() }.getOrNull()
                     logRepository.warn("Net", "HTTP ${res.code} @ ${res.request.url} body=${body?.take(500)}")
