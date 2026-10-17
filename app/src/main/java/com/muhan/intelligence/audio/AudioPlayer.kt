@@ -25,7 +25,6 @@ class AudioPlayer @Inject constructor(
             val file = File(context.cacheDir, "tts_${System.currentTimeMillis()}.wav")
             file.writeBytes(wavBytes)
             val mp = MediaPlayer()
-            mp.setDataSource(file.absolutePath)
             mp.setOnCompletionListener {
                 playing.set(false)
                 onComplete()
@@ -35,10 +34,20 @@ class AudioPlayer @Inject constructor(
                 onComplete()
                 true
             }
-            mp.prepare()
-            mp.start()
             playing.set(true)
             player = mp
+            // prepare()/start() 移到后台线程，避免长语音在主线程解码造成卡顿。
+            Thread {
+                try {
+                    mp.setDataSource(file.absolutePath)
+                    mp.prepare()
+                    mp.start()
+                } catch (t: Throwable) {
+                    playing.set(false)
+                    runCatching { mp.release() }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post(onComplete)
+                }
+            }.apply { isDaemon = true; start() }
             true
         } catch (t: Throwable) {
             playing.set(false)

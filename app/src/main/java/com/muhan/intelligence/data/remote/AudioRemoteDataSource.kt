@@ -3,6 +3,8 @@ package com.muhan.intelligence.data.remote
 import android.util.Base64
 import com.muhan.intelligence.BuildConfig
 import com.muhan.intelligence.data.local.LogRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
@@ -115,28 +117,26 @@ class AudioRemoteDataSource @Inject constructor(
         return Base64.decode(b64, Base64.NO_WRAP)
     }
 
-    private suspend fun execute(body: String): kotlinx.serialization.json.JsonObject {
-        if (!isConfigured) throw IllegalStateException("尚未配置内置语音服务")
+    private suspend fun execute(body: String): kotlinx.serialization.json.JsonObject =
+        withContext(Dispatchers.IO) {
+            if (!isConfigured) throw IllegalStateException("尚未配置内置语音服务")
 
-        val request = Request.Builder()
-            .url(endpoint)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .post(body.toRequestBody(jsonMedia))
-            .build()
+            val request = Request.Builder()
+                .url(endpoint)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .post(body.toRequestBody(jsonMedia))
+                .build()
 
-        client.newCall(request).execute().use { res ->
-            val raw = res.body?.string().orEmpty()
-            if (!res.isSuccessful) {
-                logRepository.warn("Audio", "语音接口 HTTP ${res.code} body=${raw.take(400)}")
-                throw IllegalStateException("语音服务返回错误（HTTP ${res.code}）")
-            }
-            val parsed = runCatching { json.parseToJsonElement(raw).jsonObject }
-                .getOrElse {
-                    throw IllegalStateException("语音服务响应解析失败")
+            client.newCall(request).execute().use { res ->
+                val raw = res.body?.string().orEmpty()
+                if (!res.isSuccessful) {
+                    logRepository.warn("Audio", "语音接口 HTTP ${res.code} body=${raw.take(400)}")
+                    throw IllegalStateException("语音服务返回错误（HTTP ${res.code}）")
                 }
-            return parsed
+                runCatching { json.parseToJsonElement(raw).jsonObject }
+                    .getOrElse { throw IllegalStateException("语音服务响应解析失败") }
+            }
         }
-    }
 
     private companion object {
         const val ASR_MODEL = "mimo-v2.5-asr"
