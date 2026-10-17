@@ -26,7 +26,6 @@ object Routes {
     const val SETTINGS = "settings"
     const val PROVIDERS = "settings/providers"
     const val PROVIDER_EDITOR = "settings/providers/edit"
-    const val GENERATION = "settings/generation"
     const val LOGS = "settings/logs"
     const val ABOUT = "settings/about"
 

@@ -59,7 +59,6 @@ import com.muhan.intelligence.ui.components.clickableNoIndication
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenProviders: () -> Unit,
-    onOpenGeneration: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenLogs: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -124,21 +123,6 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            // ---------------- Generation ----------------
-            SectionLabel("对话")
-            Spacer(Modifier.height(8.dp))
-            SettingsCard {
-                SettingsRow(
-                    icon = Icons.Outlined.Tune,
-                    title = "生成参数",
-                    subtitle = "温度 ${state.preferences.generation.temperature} · 最大 ${state.preferences.generation.maxTokens} tokens",
-                    trailing = Icons.Outlined.ChevronRight,
-                    onClick = onOpenGeneration,
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
             // ---------------- Appearance ----------------
             SectionLabel("外观")
             Spacer(Modifier.height(8.dp))
@@ -170,13 +154,6 @@ fun SettingsScreen(
                     titleColor = MaterialTheme.colorScheme.error,
                     onClick = { confirmClear = true },
                 )
-                Divider()
-                SettingsRow(
-                    icon = Icons.Outlined.Refresh,
-                    title = "重新运行新手引导",
-                    subtitle = "再次查看设置向导",
-                    onClick = viewModel::restartOnboarding,
-                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -188,7 +165,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Outlined.Info,
                     title = "用户体验改善计划",
-                    subtitle = "帮助我们改进产品（诊断信息与崩溃日志，可随时关闭）",
+                    subtitle = "同意匿名化上传应用日志与对话，帮助我们改进产品",
                     checked = state.preferences.uxImprovement,
                     onCheckedChange = viewModel::setUxImprovement,
                 )
@@ -210,7 +187,7 @@ fun SettingsScreen(
             SettingsCard {
                 SettingsRow(
                     icon = Icons.Outlined.Info,
-                    title = "关于慕寒智能",
+                    title = "关于 MuHan Intelligence",
                     subtitle = "版本 ${state.versionName}",
                     trailing = Icons.Outlined.ChevronRight,
                     onClick = onOpenAbout,

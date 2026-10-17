@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">慕寒智能</string>
+    <!-- 品牌名统一使用英文，即使在中文系统下也显示 MuHan Intelligence -->
+    <string name="app_name">MuHan Intelligence</string>
 </resources>

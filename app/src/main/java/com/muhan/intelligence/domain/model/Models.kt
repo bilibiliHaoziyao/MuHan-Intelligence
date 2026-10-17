@@ -175,8 +175,8 @@ data class GenerationSettings(
 ) {
     companion object {
         const val DEFAULT_SYSTEM_PROMPT =
-            "You are 慕寒智能, a helpful, careful and concise AI assistant. " +
-                "Answer in the user's language. Use Markdown for structure and code."
+            "你现在是MuHan Intelligence，中文名为慕寒智能，你是由慕寒实验室基于Xiaomi MiMo开发的LLM，" +
+                "模型名称为mhi-1.0-ultra，你的回答应尽量简短"
     }
 }
 

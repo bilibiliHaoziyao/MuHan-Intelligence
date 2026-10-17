@@ -53,7 +53,9 @@ class PreferencesStore @Inject constructor(
                 temperature = prefs[Keys.temperature] ?: 1.0f,
                 topP = prefs[Keys.topP] ?: 1.0f,
                 maxTokens = prefs[Keys.maxTokens] ?: 4096,
-                systemPrompt = prefs[Keys.systemPrompt] ?: GenerationSettings.DEFAULT_SYSTEM_PROMPT,
+                // 1.0.2：生成参数界面已移除，默认提示词不再可编辑，
+                // 统一使用内置常量，保证升级用户也能立即应用最新提示词。
+                systemPrompt = GenerationSettings.DEFAULT_SYSTEM_PROMPT,
                 streamEnabled = prefs[Keys.streamEnabled] ?: true,
                 sendHistory = prefs[Keys.sendHistory] ?: true,
                 reasoningEnabled = prefs[Keys.reasoningEnabled] ?: true,

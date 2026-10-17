@@ -16,8 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material3.Icon
@@ -38,8 +36,6 @@ import com.muhan.intelligence.ui.components.BrandMark
 import com.muhan.intelligence.ui.components.SectionLabel
 import com.muhan.intelligence.ui.components.clickableNoIndication
 
-private const val GITHUB_URL = "https://github.com/bilibiliHaoziyao/MuHan-Intelligence"
-private const val ISSUES_URL = "$GITHUB_URL/issues"
 private const val BILIBILI_URL = "https://b23.tv/6UtmCB0"
 
 @Composable
@@ -71,13 +67,13 @@ fun AboutScreen(
             BrandMark(size = 76.dp)
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "慕寒智能",
+                text = "MuHan Intelligence",
                 style = MaterialTheme.typography.headlineSmall,
                 color = scheme.onSurface,
             )
             Spacer(Modifier.height(5.dp))
             Text(
-                text = "版本 ${state.versionName}",
+                text = "听见你，更懂你",
                 style = MaterialTheme.typography.labelMedium,
                 color = scheme.onSurfaceVariant,
             )
@@ -95,23 +91,9 @@ fun AboutScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            SectionLabel("项目链接")
+            SectionLabel("作者链接")
             Spacer(Modifier.height(8.dp))
             SettingsCard {
-                LinkRow(
-                    icon = Icons.Outlined.Code,
-                    title = "GitHub 仓库",
-                    subtitle = "bilibiliHaoziyao/MuHan-Intelligence",
-                    onClick = { runCatching { uriHandler.openUri(GITHUB_URL) } },
-                )
-                Divider()
-                LinkRow(
-                    icon = Icons.Outlined.BugReport,
-                    title = "反馈问题",
-                    subtitle = "提交 Issue 帮助我们一起改进",
-                    onClick = { runCatching { uriHandler.openUri(ISSUES_URL) } },
-                )
-                Divider()
                 LinkRow(
                     icon = Icons.Outlined.PlayCircle,
                     title = "我的哔哩哔哩",
