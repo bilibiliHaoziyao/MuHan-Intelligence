@@ -2,6 +2,7 @@ package com.muhan.intelligence.ui.screens.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,8 +17,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.ui.components.BrandMark
 import com.muhan.intelligence.ui.components.SectionLabel
 import com.muhan.intelligence.ui.components.clickableNoIndication
+import com.muhan.intelligence.ui.screens.update.UpdateAvailableScreen
 
 private const val BILIBILI_URL = "https://b23.tv/6UtmCB0"
 
@@ -40,60 +44,93 @@ private const val BILIBILI_URL = "https://b23.tv/6UtmCB0"
 fun AboutScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    updateViewModel: AboutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
     val scheme = MaterialTheme.colorScheme
     val uriHandler = LocalUriHandler.current
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(scheme.background)
-            .statusBarsPadding(),
+            .background(scheme.background),
     ) {
-        SettingsTopBar(title = "关于", onBack = onBack)
-
         Column(
             modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxSize()
+                .statusBarsPadding(),
         ) {
-            Spacer(Modifier.height(28.dp))
+            SettingsTopBar(title = "关于", onBack = onBack)
 
-            BrandMark(size = 76.dp)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = "MuHan Intelligence",
-                style = MaterialTheme.typography.headlineSmall,
-                color = scheme.onSurface,
-            )
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = "听见你，更懂你",
-                style = MaterialTheme.typography.labelMedium,
-                color = scheme.onSurfaceVariant,
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(28.dp))
 
-            Spacer(Modifier.height(24.dp))
-
-            SectionLabel("作者链接")
-            Spacer(Modifier.height(8.dp))
-            SettingsCard {
-                LinkRow(
-                    icon = Icons.Outlined.PlayCircle,
-                    title = "我的哔哩哔哩",
-                    subtitle = "b23.tv/6UtmCB0",
-                    onClick = { runCatching { uriHandler.openUri(BILIBILI_URL) } },
+                BrandMark(size = 76.dp)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "MuHan Intelligence",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = scheme.onSurface,
                 )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = "听见你，更懂你",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(24.dp))
+
+                SectionLabel("应用")
+                Spacer(Modifier.height(8.dp))
+                SettingsCard {
+                    SettingsRow(
+                        icon = Icons.Outlined.Refresh,
+                        title = "检查更新",
+                        subtitle = when {
+                            updateState.checking -> "正在检查…"
+                            updateState.message != null -> updateState.message
+                            else -> "当前版本 ${state.versionName}"
+                        },
+                        trailing = Icons.Outlined.ChevronRight,
+                        onClick = updateViewModel::checkForUpdate,
+                    )
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                SectionLabel("作者链接")
+                Spacer(Modifier.height(8.dp))
+                SettingsCard {
+                    LinkRow(
+                        icon = Icons.Outlined.PlayCircle,
+                        title = "我的哔哩哔哩",
+                        subtitle = "b23.tv/6UtmCB0",
+                        onClick = { runCatching { uriHandler.openUri(BILIBILI_URL) } },
+                    )
+                }
+
+                Spacer(Modifier.height(28.dp))
+
+                VersionFooter(state.versionName)
+
+                Spacer(Modifier.height(32.dp))
             }
+        }
 
-            Spacer(Modifier.height(28.dp))
-
-            VersionFooter(state.versionName)
-
-            Spacer(Modifier.height(32.dp))
+        // 手动检查到新版本：全屏提示，可稍后。
+        updateState.update?.let { update ->
+            UpdateAvailableScreen(
+                update = update,
+                onLater = updateViewModel::dismissUpdate,
+            )
         }
     }
 }

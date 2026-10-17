@@ -10,10 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -241,11 +238,11 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
                     }
                 }
 
-                // 非强制更新：每次启动提示一次，可稍后。
+                // 非强制更新：全屏提示一次，可稍后。
                 if (update != null && !update.isForced && update.hasUpdate && !optionalUpdateDismissed) {
-                    OptionalUpdateDialog(
+                    com.muhan.intelligence.ui.screens.update.UpdateAvailableScreen(
                         update = update,
-                        onDismiss = { optionalUpdateDismissed = true },
+                        onLater = { optionalUpdateDismissed = true },
                     )
                 }
             }
@@ -253,28 +250,3 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
     }
 }
 
-@Composable
-private fun OptionalUpdateDialog(
-    update: com.muhan.intelligence.data.repository.AppUpdate,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("发现新版本 ${update.latestName}") },
-        text = {
-            Text("当前版本 ${update.currentName}。更新后可获得最新改进，且不会丢失对话与设置。")
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    com.muhan.intelligence.ui.screens.update.openUrl(context, update.downloadUrl)
-                    onDismiss()
-                },
-            ) { Text("立即更新") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("稍后") }
-        },
-    )
-}

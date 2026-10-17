@@ -90,8 +90,8 @@ android {
         applicationId = "com.muhan.intelligence"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "3.1.0"
+        versionCode = 25
+        versionName = "3.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
