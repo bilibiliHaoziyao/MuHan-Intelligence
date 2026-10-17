@@ -210,6 +210,25 @@ data class AppPreferences(
     }
 }
 
+/** 月度 Token 配额（2.0.2，仅内置慕寒智能 LLM 对话计入）。 */
+const val MONTHLY_TOKEN_LIMIT: Long = 100_000L
+
+/** 某结算周期的 Token 用量快照。 */
+data class TokenQuota(
+    /** 结算周期标识，形如 "2026-10"。 */
+    val period: String,
+    /** 本周期已用 token。 */
+    val used: Long = 0L,
+    /** 上一周期结转的欠账（超出部分）。 */
+    val carry: Long = 0L,
+    val limit: Long = MONTHLY_TOKEN_LIMIT,
+) {
+    /** 本周期剩余可用 token（不足 0 计为 0）。 */
+    val available: Long get() = (limit - carry - used).coerceAtLeast(0L)
+
+    val isExhausted: Boolean get() = available <= 0L
+}
+
 /** Streaming events emitted while a completion is in flight. */
 sealed interface StreamEvent {
     data class ReasoningDelta(val text: String) : StreamEvent

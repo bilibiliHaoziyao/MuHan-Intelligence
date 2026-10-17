@@ -1,5 +1,9 @@
 package com.muhan.intelligence.ui.screens.settings
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +38,7 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -47,13 +52,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ThemeMode
+import com.muhan.intelligence.domain.model.TokenQuota
 import com.muhan.intelligence.domain.model.isBuiltIn
 import com.muhan.intelligence.ui.components.SectionLabel
 import com.muhan.intelligence.ui.components.clickableNoIndication
@@ -68,6 +76,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -161,6 +170,31 @@ fun SettingsScreen(
                 VoiceSelector(
                     current = state.preferences.ttsVoice,
                     onSelect = viewModel::setTtsVoice,
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // ---------------- Usage ----------------
+            SectionLabel("用量")
+            Spacer(Modifier.height(8.dp))
+            SettingsCard {
+                UsageSection(
+                    quota = state.quota,
+                    storageReady = state.quotaStorageReady,
+                    onGrantStorage = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                    onRefresh = viewModel::refreshQuota,
                 )
             }
 
@@ -578,6 +612,122 @@ private fun VoiceSelector(current: String, onSelect: (String) -> Unit) {
                         color = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UsageSection(
+    quota: TokenQuota?,
+    storageReady: Boolean,
+    onGrantStorage: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+
+    // 从系统「所有文件访问」授权页返回时自动刷新额度。
+    LifecycleResumeEffect(Unit) {
+        onRefresh()
+        onPauseOrDispose { }
+    }
+
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        if (!storageReady) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Storage,
+                    contentDescription = null,
+                    tint = scheme.error,
+                    modifier = Modifier.size(19.dp),
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "需授予存储权限以记录用量",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.error,
+                    )
+                    Text(
+                        text = "额度数据保存在公共存储以防卸载重置",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = "去授权",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickableNoIndication(onClick = onGrantStorage)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+            return@Column
+        }
+
+        val q = quota
+        if (q == null) {
+            Text(
+                text = "读取中…",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "本月剩余额度",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurface,
+                )
+                Text(
+                    text = "每月 1 日结算 · 仅统计内置慕寒智能对话",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = String.format("%,d token", q.available),
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.primary,
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        val total = q.limit
+        val usedFraction = if (total <= 0L) 0f else {
+            (total - q.available).coerceIn(0L, total).toFloat() / total.toFloat()
+        }
+        LinearProgressIndicator(
+            progress = { usedFraction },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = if (q.isExhausted) scheme.error else scheme.primary,
+            trackColor = scheme.surfaceContainerHighest,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "已用 ${String.format("%,d", total - q.available)} / 总量 ${String.format("%,d", total)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant,
+            )
+            if (q.carry > 0L) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "上月结转 -${String.format("%,d", q.carry)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.error,
+                )
             }
         }
     }

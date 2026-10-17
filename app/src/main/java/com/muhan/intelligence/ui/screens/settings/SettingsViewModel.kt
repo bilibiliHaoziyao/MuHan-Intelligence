@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muhan.intelligence.BuildConfig
+import com.muhan.intelligence.data.local.UsageStore
 import com.muhan.intelligence.data.remote.ProviderPresets
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
@@ -12,6 +13,7 @@ import com.muhan.intelligence.domain.model.ApiFlavor
 import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ConnectionTestResult
 import com.muhan.intelligence.domain.model.GenerationSettings
+import com.muhan.intelligence.domain.model.TokenQuota
 import com.muhan.intelligence.domain.model.BUILTIN_PROVIDER_ID
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.ThemeMode
@@ -33,6 +35,9 @@ data class SettingsUiState(
     val isDebugBuild: Boolean = BuildConfig.DEBUG,
     val message: String? = null,
     val isLoading: Boolean = true,
+    /** 2.0.2：内置 LLM 月度用量。 */
+    val quota: TokenQuota? = null,
+    val quotaStorageReady: Boolean = false,
 )
 
 @HiltViewModel
@@ -41,6 +46,7 @@ class SettingsViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val conversationRepository: ConversationRepository,
     private val logRepository: com.muhan.intelligence.data.local.LogRepository,
+    private val usageStore: UsageStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -62,7 +68,17 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+        refreshQuota()
     }
+
+    fun refreshQuota() {
+        viewModelScope.launch {
+            val q = usageStore.current()
+            _state.update { it.copy(quota = q.quota, quotaStorageReady = q.storageReady) }
+        }
+    }
+
+    fun hasStorageAccess(): Boolean = usageStore.hasStorageAccess()
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 

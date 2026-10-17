@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.muhan.intelligence.audio.AudioPlayer
 import com.muhan.intelligence.audio.AudioRecorder
 import com.muhan.intelligence.data.local.AttachmentStore
+import com.muhan.intelligence.data.local.UsageStore
 import com.muhan.intelligence.data.remote.AudioRemoteDataSource
 import com.muhan.intelligence.data.remote.RequestBodyFactory
 import com.muhan.intelligence.data.repository.ConversationRepository
@@ -20,6 +21,7 @@ import com.muhan.intelligence.domain.model.MessageStatus
 import com.muhan.intelligence.domain.model.ProviderConfig
 import com.muhan.intelligence.domain.model.Role
 import com.muhan.intelligence.domain.model.StreamEvent
+import com.muhan.intelligence.domain.model.isBuiltIn
 import com.muhan.intelligence.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -97,6 +99,7 @@ class ChatViewModel @Inject constructor(
     private val audioRemoteDataSource: AudioRemoteDataSource,
     private val audioRecorder: AudioRecorder,
     private val audioPlayer: AudioPlayer,
+    private val usageStore: UsageStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -474,6 +477,25 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val conversationId = state.conversationId
+                val provider = state.activeProvider ?: return@launch
+
+                // 2.0.2：内置慕寒智能的月度 Token 额度校验（第三方服务商不计入）。
+                if (provider.isBuiltIn) {
+                    val q = usageStore.current()
+                    if (!q.storageReady) {
+                        _uiState.update {
+                            it.copy(errorBanner = "无法读取用量数据：请在「设置 → 用量」授予存储权限")
+                        }
+                        return@launch
+                    }
+                    if (q.quota.isExhausted) {
+                        _uiState.update {
+                            it.copy(errorBanner = "本月 10 万 token 额度已用尽，将于每月 1 日恢复")
+                        }
+                        return@launch
+                    }
+                }
+
                 val attachments = state.pendingAttachments
                 val userMessage = ChatMessage(
                     id = UUID.randomUUID().toString(),
@@ -729,6 +751,11 @@ class ChatViewModel @Inject constructor(
                         isGenerating = false,
                         infoBanner = failureMessage?.let { m -> "生成中断：$m" },
                     )
+                }
+                // 2.0.2：内置 LLM 用量记账（按服务端返回的输入+输出 token）。
+                val finalTokens = tokenCount
+                if (provider.isBuiltIn && finalTokens != null && finalTokens > 0) {
+                    usageStore.addBuiltInUsage(finalTokens.toLong())
                 }
                 // 2.0.0 Beta：自然完成后按设置自动朗读。
                 if (failureMessage == null) {
