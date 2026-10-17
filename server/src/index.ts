@@ -283,9 +283,36 @@ export default {
         return withCors(json({ ok: true, time: Date.now() }));
       }
 
+      // ---- 安装包下载中转（3.0.1）：客户端网络可能无法直连 GitHub 下载域，
+      // 由 Worker 边缘代取并流式转发。/download/<version_code>
+      if (path.startsWith("/download/") && request.method === "GET") {
+        const code = Number(path.slice("/download/".length));
+        if (!Number.isInteger(code) || code <= 0) throw new HttpError("版本号无效", 400);
+
+        const row = await env.DB.prepare(
+          "SELECT version_name, download_url FROM app_versions WHERE version_code=?",
+        )
+          .bind(code)
+          .first<any>();
+        if (!row) throw new HttpError("版本不存在", 404);
+
+        const upstream = await fetch(row.download_url, { redirect: "follow" });
+        if (!upstream.ok || !upstream.body) {
+          console.error("download upstream failed", upstream.status);
+          throw new HttpError("获取安装包失败，请稍后重试", 502);
+        }
+
+        return new Response(upstream.body, {
+          headers: {
+            "content-type": "application/vnd.android.package-archive",
+            "content-disposition": `attachment; filename="MuHan-Intelligence-${row.version_name}.apk"`,
+            "cache-control": "public, max-age=300",
+          },
+        });
+      }
+
       // ---- 检查更新（无需登录，启动即调用）
-      if (path === "/app/version" && request.method === "GET") {
-        const latest = await env.DB.prepare(
+      if (path === "/app/version" && request.method === "GET") {        const latest = await env.DB.prepare(
           "SELECT version_code, version_name, download_url, released_at FROM app_versions ORDER BY version_code DESC LIMIT 1",
         ).first<any>();
         if (!latest) throw new HttpError("暂未发布版本信息", 404);
