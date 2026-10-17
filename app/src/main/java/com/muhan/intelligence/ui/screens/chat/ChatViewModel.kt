@@ -690,6 +690,8 @@ class ChatViewModel @Inject constructor(
                             publishStreaming(assistantId, content.toString(), reasoning.toString())
                         }
                         is StreamEvent.Usage -> tokenCount = event.promptTokens + event.completionTokens
+                        // 对话模式不下发工具定义，不会出现工具调用。
+                        is StreamEvent.ToolCallDelta -> Unit
                         is StreamEvent.Completed -> Unit
                         is StreamEvent.Failed -> {
                             failureMessage = event.message

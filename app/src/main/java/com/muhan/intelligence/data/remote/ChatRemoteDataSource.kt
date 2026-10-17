@@ -60,6 +60,8 @@ class ChatRemoteDataSource @Inject constructor(
         maxTokens: Int,
         thinkingEnabled: Boolean = false,
         webSearchEnabled: Boolean = false,
+        toolsJson: String? = null,
+        rawMessagesJson: String? = null,
     ): Flow<StreamEvent> = callbackFlow {
         val request = buildRequest(
             provider = provider,
@@ -72,6 +74,8 @@ class ChatRemoteDataSource @Inject constructor(
             stream = true,
             thinkingEnabled = thinkingEnabled,
             webSearchEnabled = webSearchEnabled,
+            toolsJson = toolsJson,
+            rawMessagesJson = rawMessagesJson,
         )
 
         logRepository.info(
@@ -301,6 +305,8 @@ class ChatRemoteDataSource @Inject constructor(
         stream: Boolean,
         thinkingEnabled: Boolean = false,
         webSearchEnabled: Boolean = false,
+        toolsJson: String? = null,
+        rawMessagesJson: String? = null,
     ): Request {
         val url = EndpointResolver.resolve(provider, stream)
         val payload = RequestBodyFactory.build(
@@ -316,6 +322,8 @@ class ChatRemoteDataSource @Inject constructor(
             webSearchEnabled = webSearchEnabled,
             builtInAnchor = provider.isBuiltIn,
             includeThinkingFlag = !provider.isBuiltIn,
+            toolsJson = toolsJson,
+            rawMessagesJson = rawMessagesJson,
         )
 
         return Request.Builder()

@@ -18,6 +18,8 @@ data class ConversationEntity(
     @ColumnInfo(name = "model_name") val modelName: String?,
     val pinned: Boolean,
     @ColumnInfo(name = "message_count") val messageCount: Int,
+    /** 3.0.0：会话模式，"chat" 或 "agent"。 */
+    val mode: String = "chat",
 )
 
 @Entity(
@@ -50,6 +52,8 @@ data class MessageEntity(
     val attachments: String = "[]",
     /** Generated image (image model reply): local file path or https URL. */
     @ColumnInfo(name = "image_url") val imageUrl: String? = null,
+    /** 3.0.0：Agent 工具调用轨迹（JSON 数组）。 */
+    @ColumnInfo(name = "agent_trace") val agentTrace: String = "[]",
 )
 
 @Entity(tableName = "providers")

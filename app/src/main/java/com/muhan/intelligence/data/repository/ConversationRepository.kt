@@ -5,12 +5,16 @@ import com.muhan.intelligence.data.local.ConversationEntity
 import com.muhan.intelligence.data.local.MessageDao
 import com.muhan.intelligence.data.local.MessageEntity
 import com.muhan.intelligence.data.local.LogRepository
+import com.muhan.intelligence.domain.model.AgentStep
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.MessageStatus
+import com.muhan.intelligence.domain.model.MODE_CHAT
 import com.muhan.intelligence.domain.model.Role
 import com.muhan.intelligence.domain.model.ChatMessage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,12 +27,13 @@ class ConversationRepository @Inject constructor(
     private val attachmentStore: com.muhan.intelligence.data.local.AttachmentStore,
     private val logRepository: LogRepository,
 ) {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    fun observeConversations(): Flow<List<Conversation>> =
-        conversationDao.observeAll().map { list -> list.map { it.toDomain() } }
+    fun observeConversations(mode: String = MODE_CHAT): Flow<List<Conversation>> =
+        conversationDao.observeByMode(mode).map { list -> list.map { it.toDomain() } }
 
-    fun searchConversations(query: String): Flow<List<Conversation>> =
-        conversationDao.search(query).map { list -> list.map { it.toDomain() } }
+    fun searchConversations(query: String, mode: String = MODE_CHAT): Flow<List<Conversation>> =
+        conversationDao.searchByMode(mode, query).map { list -> list.map { it.toDomain() } }
 
     fun observeConversation(id: String): Flow<Conversation?> =
         conversationDao.observeById(id).map { it?.toDomain() }
@@ -39,6 +44,7 @@ class ConversationRepository @Inject constructor(
     suspend fun createConversation(
         title: String = "新对话",
         modelName: String?,
+        mode: String = MODE_CHAT,
     ): Conversation {
         val now = System.currentTimeMillis()
         val entity = ConversationEntity(
@@ -49,6 +55,7 @@ class ConversationRepository @Inject constructor(
             modelName = modelName,
             pinned = false,
             messageCount = 0,
+            mode = mode,
         )
         conversationDao.upsert(entity)
         return entity.toDomain()
@@ -97,7 +104,13 @@ class ConversationRepository @Inject constructor(
         )
     }
 
-    suspend fun finishMessage(messageId: String, content: String, reasoning: String, tokenCount: Int?) {
+    suspend fun finishMessage(
+        messageId: String,
+        content: String,
+        reasoning: String,
+        tokenCount: Int?,
+        agentSteps: List<AgentStep> = emptyList(),
+    ) {
         val entity = messageDao.getById(messageId) ?: run {
             logRepository.warn("DB", "finishMessage 未找到占位消息 id=$messageId，无法落库（可能导致回答不显示）")
             return
@@ -109,6 +122,7 @@ class ConversationRepository @Inject constructor(
                 status = MessageStatus.COMPLETE.name,
                 errorMessage = null,
                 tokenCount = tokenCount,
+                agentTrace = runCatching { json.encodeToString(agentSteps) }.getOrDefault("[]"),
             ),
         )
         conversationDao.touch(entity.conversationId, System.currentTimeMillis())
@@ -163,6 +177,7 @@ class ConversationRepository @Inject constructor(
         modelName = modelName,
         pinned = pinned,
         messageCount = messageCount,
+        mode = mode,
     )
 
     private fun MessageEntity.toDomain() = ChatMessage(
@@ -178,6 +193,9 @@ class ConversationRepository @Inject constructor(
         tokenCount = tokenCount,
         attachments = attachmentStore.deserialize(attachments),
         imageUrl = imageUrl,
+        agentSteps = runCatching {
+            json.decodeFromString<List<AgentStep>>(agentTrace)
+        }.getOrDefault(emptyList()),
     )
 
     private fun ChatMessage.toEntity() = MessageEntity(
@@ -193,6 +211,7 @@ class ConversationRepository @Inject constructor(
         tokenCount = tokenCount,
         attachments = attachmentStore.serialize(attachments),
         imageUrl = imageUrl,
+        agentTrace = runCatching { json.encodeToString(agentSteps) }.getOrDefault("[]"),
     )
 
     companion object {

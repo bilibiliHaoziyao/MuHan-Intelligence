@@ -127,13 +127,33 @@ class SseStreamParser(
         val delta = first["delta"] as? JsonObject
 
         if (delta != null) {
+            // 3.0.0：工具调用增量（流式下 name/arguments 分多个 chunk 到达）。
+            (delta["tool_calls"] as? JsonArray)?.firstOrNull()?.let { tc ->
+                (tc as? JsonObject)?.let { obj ->
+                    val idx = (obj["index"] as? JsonPrimitive)?.intOrNull ?: 0
+                    val id = (obj["id"] as? JsonPrimitive)?.contentOrNull
+                    val fn = obj["function"] as? JsonObject
+                    val name = (fn?.get("name") as? JsonPrimitive)?.contentOrNull
+                    val args = (fn?.get("arguments") as? JsonPrimitive)?.contentOrNull
+                    return StreamEvent.ToolCallDelta(idx, id, name, args)
+                }
+            }
             reasoning(delta)?.let { return StreamEvent.ReasoningDelta(it) }
             val text = (delta["content"] as? JsonPrimitive)?.contentOrNull
             if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
         }
 
-        // Non-streaming shape: `message.content`
+        // Non-streaming shape: `message.content` / `message.tool_calls`
         (first["message"] as? JsonObject)?.let { msg ->
+            (msg["tool_calls"] as? JsonArray)?.forEachIndexed { index, tc ->
+                (tc as? JsonObject)?.let { obj ->
+                    val id = (obj["id"] as? JsonPrimitive)?.contentOrNull
+                    val fn = obj["function"] as? JsonObject
+                    val name = (fn?.get("name") as? JsonPrimitive)?.contentOrNull
+                    val args = (fn?.get("arguments") as? JsonPrimitive)?.contentOrNull
+                    return StreamEvent.ToolCallDelta(index, id, name, args)
+                }
+            }
             val text = (msg["content"] as? JsonPrimitive)?.contentOrNull
             if (!text.isNullOrEmpty()) return StreamEvent.ContentDelta(text)
         }

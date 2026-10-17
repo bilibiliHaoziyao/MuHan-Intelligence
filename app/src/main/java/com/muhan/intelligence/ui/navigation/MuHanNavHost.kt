@@ -13,6 +13,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.muhan.intelligence.ui.screens.agent.AgentScreen
 import com.muhan.intelligence.ui.screens.chat.ChatScreen
 import com.muhan.intelligence.ui.screens.onboarding.OnboardingScreen
 import com.muhan.intelligence.ui.screens.settings.AboutScreen
@@ -88,6 +89,20 @@ fun MuHanNavHost(
             ChatRouteCommon(navController = navController)
         }
 
+        // 3.0.0：Agent 模式，与 Chat 平级、会话独立。
+        composable(
+            route = Routes.AGENT_ROUTE,
+            arguments = listOf(
+                navArgument(Routes.ARG_CONVERSATION_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            AgentRouteCommon(navController = navController)
+        }
+
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
@@ -148,6 +163,37 @@ private fun ChatRouteCommon(navController: NavHostController) {
         onSelectConversation = { id ->
             navController.navigate(Routes.chat(id)) {
                 popUpTo(Routes.CHAT_ROUTE) { inclusive = true }
+                launchSingleTop = true
+            }
+        },
+        onSwitchToAgent = {
+            navController.navigate(Routes.agent()) {
+                popUpTo(Routes.CHAT_ROUTE) { inclusive = true }
+                launchSingleTop = true
+            }
+        },
+    )
+}
+
+@Composable
+private fun AgentRouteCommon(navController: NavHostController) {
+    AgentScreen(
+        onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+        onNewChat = {
+            navController.navigate(Routes.AGENT) {
+                popUpTo(Routes.AGENT_ROUTE) { inclusive = true }
+                launchSingleTop = true
+            }
+        },
+        onSelectConversation = { id ->
+            navController.navigate(Routes.agent(id)) {
+                popUpTo(Routes.AGENT_ROUTE) { inclusive = true }
+                launchSingleTop = true
+            }
+        },
+        onSwitchToChat = {
+            navController.navigate(Routes.CHAT) {
+                popUpTo(Routes.AGENT_ROUTE) { inclusive = true }
                 launchSingleTop = true
             }
         },

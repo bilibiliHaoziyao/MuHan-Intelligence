@@ -61,10 +61,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.domain.model.ChatMessage
+import com.muhan.intelligence.domain.model.MODE_AGENT
+import com.muhan.intelligence.domain.model.MODE_CHAT
 import com.muhan.intelligence.ui.components.BrandMark
 import com.muhan.intelligence.ui.components.ChatInputBar
 import com.muhan.intelligence.ui.components.HistoryDrawerContent
 import com.muhan.intelligence.ui.components.MessageBubble
+import com.muhan.intelligence.ui.components.ModeSwitcher
 import com.muhan.intelligence.ui.components.SuggestionChip
 import com.muhan.intelligence.ui.components.clickableNoIndication
 import kotlinx.coroutines.launch
@@ -81,6 +84,7 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onNewChat: () -> Unit,
     onSelectConversation: (String) -> Unit,
+    onSwitchToAgent: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -152,6 +156,7 @@ fun ChatScreen(
                 onMenu = { scope.launch { drawerState.open() } },
                 onNewChat = onNewChat,
                 onOpenSettings = onOpenSettings,
+                onSwitchToAgent = onSwitchToAgent,
             )
 
             AnimatedVisibility(
@@ -229,6 +234,7 @@ private fun ChatTopBar(
     onMenu: () -> Unit,
     onNewChat: () -> Unit,
     onOpenSettings: () -> Unit,
+    onSwitchToAgent: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -250,31 +256,27 @@ private fun ChatTopBar(
             modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = scheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            ModeSwitcher(
+                current = MODE_CHAT,
+                onSelect = { if (it == MODE_AGENT) onSwitchToAgent() },
             )
-            if (subtitle != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isGenerating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(9.dp),
-                            strokeWidth = 1.5.dp,
-                            color = scheme.primary,
-                        )
-                        Spacer(Modifier.width(5.dp))
-                    }
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            Spacer(Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isGenerating) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(9.dp),
+                        strokeWidth = 1.5.dp,
+                        color = scheme.primary,
                     )
+                    Spacer(Modifier.width(5.dp))
                 }
+                Text(
+                    text = listOfNotNull(title, subtitle).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 

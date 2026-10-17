@@ -62,6 +62,24 @@ data class MessageAttachment(
 }
 
 /**
+ * Agent 执行步骤（3.0.0）：一次工具调用的记录，随消息一起持久化并展示。
+ */
+@Serializable
+data class AgentStep(
+    /** 工具名，如 get_time / calculate / fetch_url / save_note。 */
+    val name: String,
+    /** 调用参数（JSON 字符串，展示用）。 */
+    val arguments: String = "",
+    /** 工具返回结果（已截断）。 */
+    val result: String = "",
+    val ok: Boolean = true,
+)
+
+/** 会话模式：普通对话 / Agent。 */
+const val MODE_CHAT = "chat"
+const val MODE_AGENT = "agent"
+
+/**
  * A single turn in a conversation.
  *
  * [reasoningContent] captures chain-of-thought emitted by reasoning models
@@ -82,11 +100,14 @@ data class ChatMessage(
     val tokenCount: Int? = null,
     val attachments: List<MessageAttachment> = emptyList(),
     val imageUrl: String? = null,
+    /** Agent 模式下本轮的工具调用轨迹。 */
+    val agentSteps: List<AgentStep> = emptyList(),
 ) {
     val isStreaming: Boolean get() = status == MessageStatus.STREAMING
     val hasReasoning: Boolean get() = reasoningContent.isNotBlank()
     val hasAttachments: Boolean get() = attachments.isNotEmpty()
     val isImageMessage: Boolean get() = imageUrl != null
+    val hasAgentSteps: Boolean get() = agentSteps.isNotEmpty()
 }
 
 /** A conversation thread shown in the history drawer. */
@@ -98,6 +119,7 @@ data class Conversation(
     val modelName: String? = null,
     val pinned: Boolean = false,
     val messageCount: Int = 0,
+    val mode: String = MODE_CHAT,
 )
 
 /**
@@ -234,6 +256,18 @@ sealed interface StreamEvent {
     data class ReasoningDelta(val text: String) : StreamEvent
     data class ContentDelta(val text: String) : StreamEvent
     data class Usage(val promptTokens: Int, val completionTokens: Int) : StreamEvent
+
+    /**
+     * 3.0.0：工具调用增量（OpenAI 兼容流式格式）。同一 [index] 的
+     * arguments 需要按到达顺序拼接。
+     */
+    data class ToolCallDelta(
+        val index: Int,
+        val id: String? = null,
+        val name: String? = null,
+        val argumentsDelta: String? = null,
+    ) : StreamEvent
+
     data object Completed : StreamEvent
     data class Failed(val message: String) : StreamEvent
 }

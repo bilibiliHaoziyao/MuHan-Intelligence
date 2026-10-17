@@ -35,11 +35,19 @@ object DatabaseModule {
         }
     }
 
+    /** 2.0.0 → 3.0.0: 会话模式（chat/agent）与 Agent 工具轨迹。 */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'")
+            db.execSQL("ALTER TABLE messages ADD COLUMN agent_trace TEXT NOT NULL DEFAULT '[]'")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MuHanDatabase =
         Room.databaseBuilder(context, MuHanDatabase::class.java, MuHanDatabase.NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
 

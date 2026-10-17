@@ -23,6 +23,10 @@ object Routes {
     const val CHAT_ROUTE = "$CHAT?$ARG_CONVERSATION_ID={$ARG_CONVERSATION_ID}"
     const val CHAT_START = CHAT_ROUTE
 
+    /** 3.0.0：Agent 模式与 Chat 平级，会话独立。 */
+    const val AGENT = "agent"
+    const val AGENT_ROUTE = "$AGENT?$ARG_CONVERSATION_ID={$ARG_CONVERSATION_ID}"
+
     const val SETTINGS = "settings"
     const val PROVIDERS = "settings/providers"
     const val PROVIDER_EDITOR = "settings/providers/edit"
@@ -31,6 +35,9 @@ object Routes {
 
     fun chat(conversationId: String? = null): String =
         if (conversationId.isNullOrBlank()) CHAT else "$CHAT?$ARG_CONVERSATION_ID=$conversationId"
+
+    fun agent(conversationId: String? = null): String =
+        if (conversationId.isNullOrBlank()) AGENT else "$AGENT?$ARG_CONVERSATION_ID=$conversationId"
 
     fun providerEditor(providerId: String? = null): String =
         if (providerId.isNullOrBlank()) PROVIDER_EDITOR else "$PROVIDER_EDITOR/$providerId"

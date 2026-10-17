@@ -58,9 +58,13 @@ object RequestBodyFactory {
         webSearchEnabled: Boolean = false,
         builtInAnchor: Boolean = false,
         includeThinkingFlag: Boolean = true,
+        /** 3.0.0 Agent：工具定义 JSON 数组（含 web_search 与 function 工具）。 */
+        toolsJson: String? = null,
+        /** 3.0.0 Agent：完整 messages JSON 数组（含 system/tool 角色与 tool_calls）。 */
+        rawMessagesJson: String? = null,
     ): String = when (flavor) {
         ApiFlavor.OPENAI ->
-            openAi(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled, builtInAnchor, includeThinkingFlag)
+            openAi(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled, builtInAnchor, includeThinkingFlag, toolsJson, rawMessagesJson)
         ApiFlavor.ANTHROPIC ->
             anthropic(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled)
         ApiFlavor.GEMINI ->
@@ -102,42 +106,49 @@ object RequestBodyFactory {
         webSearchEnabled: Boolean,
         builtInAnchor: Boolean = false,
         includeThinkingFlag: Boolean = true,
+        toolsJson: String? = null,
+        rawMessagesJson: String? = null,
     ): String = buildJsonObject {
         put("model", model)
-        putJsonArray("messages") {
-            if (systemPrompt.isNotBlank()) {
-                addJsonObject {
-                    put("role", Role.SYSTEM.wireValue)
-                    put("content", systemPrompt)
-                }
-            }
-            if (builtInAnchor) {
-                builtInAnchorMessages.forEach { message ->
+        if (rawMessagesJson != null) {
+            // Agent 模式：消息数组由调用方完整构造（含 tool_calls / tool 结果）。
+            put("messages", json.parseToJsonElement(rawMessagesJson))
+        } else {
+            putJsonArray("messages") {
+                if (systemPrompt.isNotBlank()) {
                     addJsonObject {
-                        put("role", message.role.wireValue)
-                        put("content", message.text)
+                        put("role", Role.SYSTEM.wireValue)
+                        put("content", systemPrompt)
                     }
                 }
-            }
-            messages.forEach { message ->
-                addJsonObject {
-                    put("role", message.role.wireValue)
-                    if (message.hasImages) {
-                        // Vision shape: multipart content with image_url parts.
-                        putJsonArray("content") {
-                            add(buildJsonObject {
-                                put("type", "text")
-                                put("text", message.text)
-                            })
-                            message.imageDataUrls.forEach { dataUrl ->
-                                add(buildJsonObject {
-                                    put("type", "image_url")
-                                    putJsonObject("image_url") { put("url", dataUrl) }
-                                })
-                            }
+                if (builtInAnchor) {
+                    builtInAnchorMessages.forEach { message ->
+                        addJsonObject {
+                            put("role", message.role.wireValue)
+                            put("content", message.text)
                         }
-                    } else {
-                        put("content", message.text)
+                    }
+                }
+                messages.forEach { message ->
+                    addJsonObject {
+                        put("role", message.role.wireValue)
+                        if (message.hasImages) {
+                            // Vision shape: multipart content with image_url parts.
+                            putJsonArray("content") {
+                                add(buildJsonObject {
+                                    put("type", "text")
+                                    put("text", message.text)
+                                })
+                                message.imageDataUrls.forEach { dataUrl ->
+                                    add(buildJsonObject {
+                                        put("type", "image_url")
+                                        putJsonObject("image_url") { put("url", dataUrl) }
+                                    })
+                                }
+                            }
+                        } else {
+                            put("content", message.text)
+                        }
                     }
                 }
             }
@@ -167,6 +178,11 @@ object RequestBodyFactory {
         // support it or ignore it.
         if (webSearchEnabled) {
             putJsonObject("web_search_options") {}
+        }
+        // 3.0.0 Agent：工具定义（web_search 服务端工具 + 客户端 function 工具）。
+        if (toolsJson != null) {
+            put("tools", json.parseToJsonElement(toolsJson))
+            put("tool_choice", "auto")
         }
     }.toString()
 

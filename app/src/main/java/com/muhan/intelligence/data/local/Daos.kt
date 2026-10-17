@@ -13,10 +13,11 @@ interface ConversationDao {
     @Query(
         """
         SELECT * FROM conversations
+        WHERE mode = :mode
         ORDER BY pinned DESC, updated_at DESC
         """,
     )
-    fun observeAll(): Flow<List<ConversationEntity>>
+    fun observeByMode(mode: String): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): ConversationEntity?
@@ -27,11 +28,11 @@ interface ConversationDao {
     @Query(
         """
         SELECT * FROM conversations
-        WHERE title LIKE '%' || :query || '%'
+        WHERE mode = :mode AND title LIKE '%' || :query || '%'
         ORDER BY pinned DESC, updated_at DESC
         """,
     )
-    fun search(query: String): Flow<List<ConversationEntity>>
+    fun searchByMode(mode: String, query: String): Flow<List<ConversationEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(conversation: ConversationEntity)
