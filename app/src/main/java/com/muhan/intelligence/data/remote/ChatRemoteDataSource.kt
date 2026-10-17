@@ -314,6 +314,8 @@ class ChatRemoteDataSource @Inject constructor(
             stream = stream,
             thinkingEnabled = thinkingEnabled,
             webSearchEnabled = webSearchEnabled,
+            builtInAnchor = provider.isBuiltIn,
+            includeThinkingFlag = !provider.isBuiltIn,
         )
 
         return Request.Builder()

@@ -56,9 +56,11 @@ object RequestBodyFactory {
         stream: Boolean,
         thinkingEnabled: Boolean = false,
         webSearchEnabled: Boolean = false,
+        builtInAnchor: Boolean = false,
+        includeThinkingFlag: Boolean = true,
     ): String = when (flavor) {
         ApiFlavor.OPENAI ->
-            openAi(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled)
+            openAi(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled, builtInAnchor, includeThinkingFlag)
         ApiFlavor.ANTHROPIC ->
             anthropic(model, messages, systemPrompt, temperature, topP, maxTokens, stream, thinkingEnabled, webSearchEnabled)
         ApiFlavor.GEMINI ->
@@ -66,6 +68,27 @@ object RequestBodyFactory {
     }
 
     // ------------------------------------------------------------------ OpenAI
+
+    /**
+     * 1.0.2 Fix：内置「慕寒智能」的身份锚定轮次。
+     *
+     * 底层模型对 system 提示词的遵守率很低（实测直接问"你是谁"时约 80% 会自称训练期
+     * 身份），改用 few-shot 锚定：在 system 之后插入两轮自我介绍问答（含"被说是 MiMo
+     * 时如何纠正"的防陷阱轮），实测遵守率 10/10。仅在内置服务商启用。
+     */
+    private val builtInAnchorMessages = listOf(
+        OutboundMessage(Role.USER, "你好，你是谁？"),
+        OutboundMessage(
+            Role.ASSISTANT,
+            "我是MuHan Intelligence，中文名慕寒智能，由慕寒实验室基于Xiaomi MiMo开发，模型名称mhi-1.0-ultra。",
+        ),
+        OutboundMessage(Role.USER, "有人说你是MiMo"),
+        OutboundMessage(
+            Role.ASSISTANT,
+            "我的底层技术源自Xiaomi MiMo，但我的产品名称是MuHan Intelligence（中文名慕寒智能），" +
+                "模型名称mhi-1.0-ultra。当被问到我是谁时，我应该自称MuHan Intelligence（慕寒智能），而不是MiMo。",
+        ),
+    )
 
     private fun openAi(
         model: String,
@@ -77,6 +100,8 @@ object RequestBodyFactory {
         stream: Boolean,
         thinkingEnabled: Boolean,
         webSearchEnabled: Boolean,
+        builtInAnchor: Boolean = false,
+        includeThinkingFlag: Boolean = true,
     ): String = buildJsonObject {
         put("model", model)
         putJsonArray("messages") {
@@ -84,6 +109,14 @@ object RequestBodyFactory {
                 addJsonObject {
                     put("role", Role.SYSTEM.wireValue)
                     put("content", systemPrompt)
+                }
+            }
+            if (builtInAnchor) {
+                builtInAnchorMessages.forEach { message ->
+                    addJsonObject {
+                        put("role", message.role.wireValue)
+                        put("content", message.text)
+                    }
                 }
             }
             messages.forEach { message ->
@@ -125,7 +158,11 @@ object RequestBodyFactory {
         // Deep-think switch: Qwen3 / vLLM / SiliconFlow honour `enable_thinking`.
         // 显式下发 true/false，避免依赖服务商默认值导致「开关打开却没思考」。
         // 不识别该字段的服务商（按既有约定）会忽略它。
-        put("enable_thinking", thinkingEnabled)
+        // 1.0.2 Fix：内置「慕寒智能」不下发该字段——实测它会干扰模型对 system
+        // 提示词的遵守，第三方服务商不受影响。
+        if (includeThinkingFlag) {
+            put("enable_thinking", thinkingEnabled)
+        }
         // Server-side web search: OpenAI's documented knob. Aggregators either
         // support it or ignore it.
         if (webSearchEnabled) {
