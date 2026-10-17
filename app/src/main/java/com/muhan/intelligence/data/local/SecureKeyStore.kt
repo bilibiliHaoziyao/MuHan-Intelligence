@@ -45,6 +45,19 @@ class SecureKeyStore @Inject constructor(
 
     fun hasApiKey(providerId: String): Boolean = getApiKey(providerId) != null
 
+    // ---- 3.1.0：账号会话凭证（加密存储，不落日志）
+
+    fun putSecret(key: String, value: String) {
+        prefs.edit().putString("secret_$key", value).apply()
+    }
+
+    fun getSecret(key: String): String? =
+        prefs.getString("secret_$key", null)?.takeIf { it.isNotBlank() }
+
+    fun removeSecret(key: String) {
+        prefs.edit().remove("secret_$key").apply()
+    }
+
     /** Masks a key for display, e.g. `sk-1234••••••cdef`. */
     fun maskedApiKey(providerId: String): String? {
         val key = getApiKey(providerId) ?: return null

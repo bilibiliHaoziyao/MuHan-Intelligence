@@ -9,9 +9,9 @@ import com.muhan.intelligence.audio.AudioPlayer
 import com.muhan.intelligence.audio.AudioRecorder
 import com.muhan.intelligence.data.local.AttachmentStore
 import com.muhan.intelligence.data.local.LogRepository
-import com.muhan.intelligence.data.local.UsageStore
 import com.muhan.intelligence.data.remote.AudioRemoteDataSource
 import com.muhan.intelligence.data.remote.ChatRemoteDataSource
+import com.muhan.intelligence.data.repository.CloudQuotaRepository
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
@@ -95,7 +95,7 @@ class AgentViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val chatRemoteDataSource: ChatRemoteDataSource,
     private val toolRegistry: AgentToolRegistry,
-    private val usageStore: UsageStore,
+    private val quotaRepository: CloudQuotaRepository,
     private val audioRemoteDataSource: AudioRemoteDataSource,
     private val audioRecorder: AudioRecorder,
     private val audioPlayer: AudioPlayer,
@@ -220,14 +220,15 @@ class AgentViewModel @Inject constructor(
         viewModelScope.launch {
             val provider = _uiState.value.activeProvider ?: return@launch
 
-            // 与 Chat 一致：内置模型的月度额度校验。
+            // 与 Chat 一致：额度以云端为准。
             if (provider.isBuiltIn) {
-                val q = usageStore.current()
-                if (!q.storageReady) {
-                    _uiState.update { it.copy(errorBanner = "无法读取用量数据：请在「设置 → 用量」授予存储权限") }
+                val quota = runCatching { quotaRepository.current() }.getOrElse { e ->
+                    _uiState.update {
+                        it.copy(errorBanner = "无法获取云端额度：${e.message ?: "请检查网络"}")
+                    }
                     return@launch
                 }
-                if (q.quota.isExhausted) {
+                if (quota.isExhausted) {
                     _uiState.update { it.copy(errorBanner = "本月 10 万 token 额度已用尽，将于每月 1 日恢复") }
                     return@launch
                 }
@@ -444,7 +445,7 @@ class AgentViewModel @Inject constructor(
                 )
 
                 if (provider.isBuiltIn && totalTokens > 0) {
-                    usageStore.addBuiltInUsage(totalTokens.toLong())
+                    runCatching { quotaRepository.consume(totalTokens) }
                 }
                 failure?.let { _uiState.update { s -> s.copy(errorBanner = "Agent 执行中断：$it") } }
             } catch (ce: CancellationException) {

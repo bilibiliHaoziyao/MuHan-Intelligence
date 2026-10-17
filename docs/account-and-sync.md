@@ -153,6 +153,17 @@ ALTER TABLE messages ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'PENDING';
 
 ---
 
+### 5.6 实现状态（3.1.0-dev）
+
+- **强制登录**：未登录只显示登录/注册页，不能进入主界面；token 存 EncryptedSharedPreferences，过期自动刷新，刷新失败回到登录页。
+- **旧数据迁移**：Room v4 → v5，历史会话/消息默认 `sync_state = PENDING`；首次登录成功后整体分批 push（每批 100 会话 / 200 消息，循环直到清空），再增量 pull。
+- **每次操作即同步**：发送、生成完成、编辑、重发、标题、置顶、删除、清空等写操作后 300ms 合并触发一次 push + pull；流式 token 不触发。
+- **额度全量上云**：删除本地额度文件逻辑，Chat / Agent / 设置页全部走 `/quota` 与 `/quota/consume`。
+- **设置上云**：主题、动态取色、语音开关、音色、体验计划随账号同步；登录时以云端为准（新账号则上传本地值）。
+- **退出登录**：尽力同步一次后清除本地缓存，云端数据保留。
+
+---
+
 ## 6. 部署（本地 wrangler）
 
 ### 6.1 一次性准备

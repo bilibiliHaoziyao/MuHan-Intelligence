@@ -26,6 +26,7 @@ class ConversationRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val attachmentStore: com.muhan.intelligence.data.local.AttachmentStore,
     private val logRepository: LogRepository,
+    private val syncRepository: SyncRepository,
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -58,6 +59,7 @@ class ConversationRepository @Inject constructor(
             mode = mode,
         )
         conversationDao.upsert(entity)
+        syncRepository.requestSync()
         return entity.toDomain()
     }
 
@@ -72,23 +74,39 @@ class ConversationRepository @Inject constructor(
             .take(24)
             .ifBlank { DEFAULT_TITLE }
         conversationDao.rename(conversationId, title, System.currentTimeMillis())
+        syncRepository.requestSync()
     }
 
     suspend fun renameConversation(id: String, title: String) {
         conversationDao.rename(id, title.take(60).ifBlank { DEFAULT_TITLE }, System.currentTimeMillis())
+        syncRepository.requestSync()
     }
 
-    suspend fun setPinned(id: String, pinned: Boolean) = conversationDao.setPinned(id, pinned)
+    suspend fun setPinned(id: String, pinned: Boolean) {
+        conversationDao.setPinned(id, pinned)
+        syncRepository.requestSync()
+    }
 
-    suspend fun deleteConversation(id: String) = conversationDao.deleteById(id)
+    suspend fun deleteConversation(id: String) {
+        val now = System.currentTimeMillis()
+        conversationDao.softDelete(id, now)
+        messageDao.softDeleteForConversation(id, now)
+        syncRepository.requestSync()
+    }
 
-    suspend fun deleteAllConversations() = conversationDao.deleteAll()
+    suspend fun deleteAllConversations() {
+        val now = System.currentTimeMillis()
+        conversationDao.softDeleteAll(now)
+        messageDao.softDeleteAll(now)
+        syncRepository.requestSync()
+    }
 
     suspend fun appendMessage(message: ChatMessage) {
         messageDao.upsert(message.toEntity())
         conversationDao.touch(message.conversationId, System.currentTimeMillis())
         val total = conversationDao.countMessages(message.conversationId)
         logRepository.info("DB", "追加消息 id=${message.id}，角色=${message.role}，会话=${message.conversationId}，会话当前消息数=$total")
+        syncRepository.requestSync()
     }
 
     suspend fun updateStreamingContent(
@@ -123,33 +141,45 @@ class ConversationRepository @Inject constructor(
                 errorMessage = null,
                 tokenCount = tokenCount,
                 agentTrace = runCatching { json.encodeToString(agentSteps) }.getOrDefault("[]"),
+                syncState = "PENDING",
+                updatedAt = System.currentTimeMillis(),
             ),
         )
         conversationDao.touch(entity.conversationId, System.currentTimeMillis())
         val total = conversationDao.countMessages(entity.conversationId)
         logRepository.info("DB", "AI回复落库完成 id=$messageId，会话=${entity.conversationId}，会话当前消息数=$total")
+        syncRepository.requestSync()
     }
 
     suspend fun failMessage(messageId: String, error: String) {
-        messageDao.updateStatus(messageId, MessageStatus.FAILED.name, error)
+        messageDao.updateStatus(messageId, MessageStatus.FAILED.name, error, System.currentTimeMillis())
+        syncRepository.requestSync()
     }
 
     suspend fun deleteMessage(messageId: String) {
-        messageDao.deleteById(messageId)
+        messageDao.softDelete(messageId, System.currentTimeMillis())
         logRepository.info("DB", "删除消息 id=$messageId")
+        syncRepository.requestSync()
     }
 
     /** Removes [messageId] and every message that came after it (keeps the ones before). */
     suspend fun truncateFrom(messageId: String, conversationId: String) {
-        messageDao.deleteFrom(conversationId, messageId)
+        messageDao.softDeleteFrom(conversationId, messageId, System.currentTimeMillis())
         logRepository.info("DB", "截断消息（含其后）messageId=$messageId，会话=$conversationId")
+        syncRepository.requestSync()
     }
 
     /** Marks any leftover STREAMING rows (e.g. after a mid-stream process kill) as COMPLETE. */
     suspend fun finalizeStreamingMessages(conversationId: String) =
         messageDao.finalizeStreaming(conversationId)
 
-    suspend fun clearMessages(conversationId: String) = messageDao.deleteForConversation(conversationId)
+    suspend fun clearMessages(conversationId: String) {
+        messageDao.softDeleteForConversation(conversationId, System.currentTimeMillis())
+        syncRepository.requestSync()
+    }
+
+    /** 退出登录时清空本地缓存（云端为权威数据源）。 */
+    suspend fun clearLocalData() = syncRepository.clearLocalCache()
 
     suspend fun loadMessage(messageId: String): ChatMessage? =
         messageDao.getById(messageId)?.toDomain()
@@ -212,6 +242,8 @@ class ConversationRepository @Inject constructor(
         attachments = attachmentStore.serialize(attachments),
         imageUrl = imageUrl,
         agentTrace = runCatching { json.encodeToString(agentSteps) }.getOrDefault("[]"),
+        syncState = "PENDING",
+        deleted = false,
     )
 
     companion object {

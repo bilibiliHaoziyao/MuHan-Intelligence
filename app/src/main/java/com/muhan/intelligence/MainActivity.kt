@@ -23,11 +23,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.muhan.intelligence.data.local.LogRepository
 import com.muhan.intelligence.data.local.PreferencesStore
+import com.muhan.intelligence.data.repository.AuthRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
 import com.muhan.intelligence.domain.model.ThemeMode
 import com.muhan.intelligence.ui.navigation.MuHanNavHost
 import com.muhan.intelligence.ui.navigation.Routes
+import com.muhan.intelligence.ui.screens.auth.AuthScreen
 import com.muhan.intelligence.ui.theme.MuHanTheme
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,12 +57,14 @@ import javax.inject.Inject
 class StartupViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val providerRepository: ProviderRepository,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     data class StartState(
         val resolved: Boolean = false,
         val onboardingCompleted: Boolean = false,
         val hasProvider: Boolean = false,
+        val loggedIn: Boolean = false,
         val themeMode: ThemeMode = ThemeMode.SYSTEM,
         val dynamicColor: Boolean = true,
     )
@@ -84,10 +88,11 @@ class StartupViewModel @Inject constructor(
                     themeMode = prefs.themeMode,
                     dynamicColor = prefs.dynamicColor,
                     hasProvider = activeProvider != null,
+                    loggedIn = authRepository.isLoggedIn,
                 )
             }
 
-            // 之后持续观察，保证主题/激活服务变更能即时生效。
+            // 之后持续观察，保证主题/激活服务/登录态变更能即时生效。
             launch {
                 settingsRepository.preferences.collect { p ->
                     _state.update {
@@ -102,6 +107,11 @@ class StartupViewModel @Inject constructor(
             launch {
                 providerRepository.observeActiveProvider().collect { provider ->
                     _state.update { it.copy(hasProvider = provider != null) }
+                }
+            }
+            launch {
+                authRepository.sessionState.collect { session ->
+                    _state.update { it.copy(loggedIn = session != null) }
                 }
             }
         }
@@ -185,15 +195,19 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
             // Hold the first frame until the destination is known, otherwise a
             // configured user would flash the onboarding screen on every launch.
             if (state.resolved) {
-                val navController = rememberNavController()
-                // 首次使用向导：未完成引导即进入向导（内置「慕寒智能」已预置，
-                // 向导会提供「开箱即用」路径，不会强制重复配置）。
-                val start = if (!state.onboardingCompleted) {
-                    Routes.ONBOARDING
+                if (!state.loggedIn) {
+                    // 3.1.0：强制登录，未登录不能进入主界面。
+                    AuthScreen()
                 } else {
-                    Routes.CHAT_START
+                    val navController = rememberNavController()
+                    // 首次使用向导：未完成引导即进入向导。
+                    val start = if (!state.onboardingCompleted) {
+                        Routes.ONBOARDING
+                    } else {
+                        Routes.CHAT_START
+                    }
+                    MuHanNavHost(navController = navController, startDestination = start)
                 }
-                MuHanNavHost(navController = navController, startDestination = start)
             }
         }
     }

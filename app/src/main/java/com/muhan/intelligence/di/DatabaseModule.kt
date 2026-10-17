@@ -43,11 +43,24 @@ object DatabaseModule {
         }
     }
 
+    /** 3.0.0 → 3.1.0: 云同步字段（sync_state / deleted）与同步游标表。 */
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'PENDING'")
+            db.execSQL("ALTER TABLE conversations ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE messages ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'PENDING'")
+            db.execSQL("ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE messages ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE messages SET updated_at = created_at")
+            db.execSQL("CREATE TABLE IF NOT EXISTS sync_meta (`key` TEXT NOT NULL PRIMARY KEY, `value` TEXT NOT NULL)")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MuHanDatabase =
         Room.databaseBuilder(context, MuHanDatabase::class.java, MuHanDatabase.NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .fallbackToDestructiveMigration()
             .build()
 
@@ -59,4 +72,8 @@ object DatabaseModule {
 
     @Provides
     fun provideProviderDao(db: MuHanDatabase): ProviderDao = db.providerDao()
+
+    @Provides
+    fun provideSyncMetaDao(db: MuHanDatabase): com.muhan.intelligence.data.local.SyncMetaDao =
+        db.syncMetaDao()
 }

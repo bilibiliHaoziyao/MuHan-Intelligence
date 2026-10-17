@@ -452,6 +452,66 @@ export default {
         return withCors(json({ ok: true }));
       }
 
+      // ---- 读取用户偏好
+      if (path === "/settings" && request.method === "GET") {
+        const userId = await requireUser(request, env);
+        const row = await env.DB.prepare(
+          `SELECT theme_mode AS themeMode, dynamic_color AS dynamicColor,
+                  tts_enabled AS ttsEnabled, tts_voice AS ttsVoice,
+                  ux_improvement AS uxImprovement, updated_at AS updatedAt
+             FROM user_settings WHERE user_id=?`,
+        )
+          .bind(userId)
+          .first<any>();
+        if (!row) {
+          return withCors(json({
+            themeMode: "SYSTEM",
+            dynamicColor: true,
+            ttsEnabled: true,
+            ttsVoice: "冰糖",
+            uxImprovement: true,
+            updatedAt: 0,
+          }));
+        }
+        return withCors(json({
+          themeMode: row.themeMode,
+          dynamicColor: !!row.dynamicColor,
+          ttsEnabled: !!row.ttsEnabled,
+          ttsVoice: row.ttsVoice,
+          uxImprovement: !!row.uxImprovement,
+          updatedAt: Number(row.updatedAt),
+        }));
+      }
+
+      // ---- 写入用户偏好（LWW）
+      if (path === "/settings" && request.method === "PUT") {
+        const userId = await requireUser(request, env);
+        const body = await readJson(request);
+        const updatedAt = Number(body.updatedAt || Date.now());
+        await env.DB.prepare(
+          `INSERT INTO user_settings
+             (user_id, theme_mode, dynamic_color, tts_enabled, tts_voice,
+              ux_improvement, updated_at)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(user_id) DO UPDATE SET
+             theme_mode=excluded.theme_mode, dynamic_color=excluded.dynamic_color,
+             tts_enabled=excluded.tts_enabled, tts_voice=excluded.tts_voice,
+             ux_improvement=excluded.ux_improvement, updated_at=excluded.updated_at
+           WHERE excluded.updated_at >= user_settings.updated_at`,
+        )
+          .bind(
+            userId,
+            String(body.themeMode || "SYSTEM"),
+            body.dynamicColor ? 1 : 0,
+            body.ttsEnabled ? 1 : 0,
+            String(body.ttsVoice || "冰糖"),
+            body.uxImprovement ? 1 : 0,
+            updatedAt,
+          )
+          .run();
+        return withCors(json({ ok: true, updatedAt }));
+      }
+
       // ---- 查询额度
       if (path === "/quota" && request.method === "GET") {
         const userId = await requireUser(request, env);

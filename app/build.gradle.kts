@@ -90,8 +90,8 @@ android {
         applicationId = "com.muhan.intelligence"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "3.0.1-dev"
+        versionCode = 21
+        versionName = "3.1.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -104,6 +104,9 @@ android {
         buildConfigField("String", "MHI_MODEL", "\"${mhiProp("MHI_MODEL")}\"")
         buildConfigField("String", "MHI_API_KEY_A", "\"${mhiKey.take(mhiKeyHalf)}\"")
         buildConfigField("String", "MHI_API_KEY_B", "\"${mhiKey.drop(mhiKeyHalf)}\"")
+
+        // 3.1.0：账号与云同步后端（Cloudflare Workers）
+        buildConfigField("String", "CLOUD_BASE_URL", "\"https://api.novasync.cn\"")
     }
 
     signingConfigs {

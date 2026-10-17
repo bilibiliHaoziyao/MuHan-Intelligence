@@ -1,9 +1,5 @@
 package com.muhan.intelligence.ui.screens.settings
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,12 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Storage
@@ -52,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,7 +73,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    var confirmLogout by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -93,6 +90,27 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(10.dp))
+
+            // ---------------- Account ----------------
+            SectionLabel("账号")
+            Spacer(Modifier.height(8.dp))
+            SettingsCard {
+                SettingsRow(
+                    icon = Icons.Outlined.AccountCircle,
+                    title = state.accountEmail ?: "未登录",
+                    subtitle = "已开启云同步 · 对话与设置随账号保存",
+                )
+                Divider()
+                SettingsRow(
+                    icon = Icons.Outlined.Logout,
+                    title = if (state.isLoggingOut) "正在退出…" else "退出登录",
+                    subtitle = "清除本地缓存，云端数据保留",
+                    titleColor = MaterialTheme.colorScheme.error,
+                    onClick = { if (!state.isLoggingOut) confirmLogout = true },
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
 
             // ---------------- Model services ----------------
             SectionLabel("模型服务")
@@ -181,19 +199,7 @@ fun SettingsScreen(
             SettingsCard {
                 UsageSection(
                     quota = state.quota,
-                    storageReady = state.quotaStorageReady,
-                    onGrantStorage = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        Uri.parse("package:${context.packageName}"),
-                                    ),
-                                )
-                            }
-                        }
-                    },
+                    error = state.quotaError,
                     onRefresh = viewModel::refreshQuota,
                 )
             }
@@ -270,6 +276,25 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("退出登录？") },
+            text = { Text("退出后会清除本机缓存，云端对话与设置仍然保留；下次登录会自动恢复。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLogout = false
+                        viewModel.logout()
+                    },
+                ) { Text("退出", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) { Text("取消") }
             },
         )
     }
@@ -620,20 +645,19 @@ private fun VoiceSelector(current: String, onSelect: (String) -> Unit) {
 @Composable
 private fun UsageSection(
     quota: TokenQuota?,
-    storageReady: Boolean,
-    onGrantStorage: () -> Unit,
+    error: String?,
     onRefresh: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
 
-    // 从系统「所有文件访问」授权页返回时自动刷新额度。
+    // 回到设置页时刷新云端额度。
     LifecycleResumeEffect(Unit) {
         onRefresh()
         onPauseOrDispose { }
     }
 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-        if (!storageReady) {
+        if (error != null && quota == null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Outlined.Storage,
@@ -644,23 +668,23 @@ private fun UsageSection(
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = "需授予存储权限以记录用量",
+                        text = "无法获取云端额度",
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.error,
                     )
                     Text(
-                        text = "额度数据保存在公共存储以防卸载重置",
+                        text = error,
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
                     )
                 }
                 Text(
-                    text = "去授权",
+                    text = "重试",
                     style = MaterialTheme.typography.labelMedium,
                     color = scheme.primary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickableNoIndication(onClick = onGrantStorage)
+                        .clickableNoIndication(onClick = onRefresh)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 )
             }

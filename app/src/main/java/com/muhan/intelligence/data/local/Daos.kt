@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -13,22 +14,25 @@ interface ConversationDao {
     @Query(
         """
         SELECT * FROM conversations
-        WHERE mode = :mode
+        WHERE mode = :mode AND deleted = 0
         ORDER BY pinned DESC, updated_at DESC
         """,
     )
     fun observeByMode(mode: String): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
+    suspend fun getByIdAny(id: String): ConversationEntity?
+
+    @Query("SELECT * FROM conversations WHERE id = :id AND deleted = 0 LIMIT 1")
     suspend fun getById(id: String): ConversationEntity?
 
-    @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
+    @Query("SELECT * FROM conversations WHERE id = :id AND deleted = 0 LIMIT 1")
     fun observeById(id: String): Flow<ConversationEntity?>
 
     @Query(
         """
         SELECT * FROM conversations
-        WHERE mode = :mode AND title LIKE '%' || :query || '%'
+        WHERE mode = :mode AND deleted = 0 AND title LIKE '%' || :query || '%'
         ORDER BY pinned DESC, updated_at DESC
         """,
     )
@@ -37,40 +41,90 @@ interface ConversationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(conversation: ConversationEntity)
 
-    @Query("UPDATE conversations SET title = :title, updated_at = :updatedAt WHERE id = :id")
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertNew(conversation: ConversationEntity)
+
+    @Update
+    suspend fun updateExisting(conversation: ConversationEntity)
+
+    @Query(
+        """
+        UPDATE conversations
+           SET title = :title, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE id = :id
+        """,
+    )
     suspend fun rename(id: String, title: String, updatedAt: Long)
 
-    @Query("UPDATE conversations SET pinned = :pinned WHERE id = :id")
+    @Query("UPDATE conversations SET pinned = :pinned, sync_state = 'PENDING' WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
     @Query("UPDATE conversations SET updated_at = :updatedAt WHERE id = :id")
     suspend fun touch(id: String, updatedAt: Long)
 
-    @Query("DELETE FROM conversations WHERE id = :id")
-    suspend fun deleteById(id: String)
+    /** 3.1.0：软删除，保留墓碑供同步。 */
+    @Query(
+        """
+        UPDATE conversations
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE id = :id
+        """,
+    )
+    suspend fun softDelete(id: String, updatedAt: Long)
 
-    @Query("DELETE FROM conversations")
-    suspend fun deleteAll()
+    @Query(
+        """
+        UPDATE conversations
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE deleted = 0
+        """,
+    )
+    suspend fun softDeleteAll(updatedAt: Long)
 
-    @Query("SELECT COUNT(*) FROM messages WHERE conversation_id = :id")
+    @Query("SELECT COUNT(*) FROM messages WHERE conversation_id = :id AND deleted = 0")
     suspend fun countMessages(id: String): Int
 
     /**
-     * 只更新消息计数，绝不用 [upsert]：后者是 REPLACE 策略（先删后插整行），
-     * 而 messages 表对 conversations 建有 ON DELETE CASCADE 外键，DELETE 整行
-     * conversation 会级联删光该会话全部消息——这正是「生成完成后记录消失」的根因。
+     * 只更新消息计数，绝不用 upsert（REPLACE 语义会先删后插整行，
+     * messages 表对 conversations 有 ON DELETE CASCADE，会级联删光消息）。
      */
     @Query("UPDATE conversations SET message_count = :count WHERE id = :id")
     suspend fun updateMessageCount(id: String, count: Int)
+
+    // ---------------------------------------------------------- 同步
+
+    @Query("SELECT * FROM conversations WHERE sync_state != 'SYNCED' LIMIT :limit")
+    suspend fun pending(limit: Int): List<ConversationEntity>
+
+    @Query("UPDATE conversations SET sync_state = 'SYNCED' WHERE id IN (:ids)")
+    suspend fun markSynced(ids: List<String>)
+
+    @Query("DELETE FROM conversations WHERE deleted = 1 AND sync_state = 'SYNCED'")
+    suspend fun purgeDeleted()
+
+    @Query("DELETE FROM conversations")
+    suspend fun clearAll()
 }
 
 @Dao
 interface MessageDao {
 
-    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY created_at ASC")
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE conversation_id = :conversationId AND deleted = 0
+        ORDER BY created_at ASC
+        """,
+    )
     fun observeForConversation(conversationId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY created_at ASC")
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE conversation_id = :conversationId AND deleted = 0
+        ORDER BY created_at ASC
+        """,
+    )
     suspend fun getForConversation(conversationId: String): List<MessageEntity>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
@@ -79,10 +133,23 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(message: MessageEntity)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertNew(message: MessageEntity)
+
+    @Update
+    suspend fun updateExisting(message: MessageEntity)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(messages: List<MessageEntity>)
 
-    @Query("UPDATE messages SET content = :content, reasoning_content = :reasoning, status = :status WHERE id = :id")
+    @Query(
+        """
+        UPDATE messages
+           SET content = :content, reasoning_content = :reasoning,
+               status = :status, sync_state = 'PENDING'
+         WHERE id = :id
+        """,
+    )
     suspend fun updateStreamingContent(
         id: String,
         content: String,
@@ -90,31 +157,76 @@ interface MessageDao {
         status: String,
     )
 
-    @Query("UPDATE messages SET status = :status, error_message = :error WHERE id = :id")
-    suspend fun updateStatus(id: String, status: String, error: String?)
+    @Query("UPDATE messages SET status = :status, error_message = :error, updated_at = :updatedAt, sync_state = 'PENDING' WHERE id = :id")
+    suspend fun updateStatus(id: String, status: String, error: String?, updatedAt: Long)
 
-    @Query("DELETE FROM messages WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    // 0.5.1 修复：旧实现 deleteAllExcept 是 `id != keepId`（只保留目标、删掉其余所有），
-    // 与「删除目标及其之后」的本意完全相反，导致每次编辑消息都清空整个对话历史。
-    // 正确语义：删除目标消息及 created_at 在其之后的所有消息，保留之前的。
+    /** 3.1.0：软删除，保留墓碑。 */
     @Query(
         """
-        DELETE FROM messages
-        WHERE conversation_id = :conversationId
-          AND created_at >= COALESCE((SELECT created_at FROM messages WHERE id = :messageId), 0)
+        UPDATE messages
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE id = :id
         """,
     )
-    suspend fun deleteFrom(conversationId: String, messageId: String)
+    suspend fun softDelete(id: String, updatedAt: Long)
 
-    // 0.5.1：应用若在流式中被杀，数据库会残留 STREAMING 状态的消息，重启后永久转圈。
-    // 加载会话时把所有遗留的 STREAMING 消息标记为 COMPLETE（内容为已持久化的部分）。
+    @Query(
+        """
+        UPDATE messages
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE conversation_id = :conversationId
+           AND created_at >= COALESCE((SELECT created_at FROM messages WHERE id = :messageId), 0)
+        """,
+    )
+    suspend fun softDeleteFrom(conversationId: String, messageId: String, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE messages
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE conversation_id = :conversationId AND deleted = 0
+        """,
+    )
+    suspend fun softDeleteForConversation(conversationId: String, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE messages
+           SET deleted = 1, updated_at = :updatedAt, sync_state = 'PENDING'
+         WHERE deleted = 0
+        """,
+    )
+    suspend fun softDeleteAll(updatedAt: Long)
+
     @Query("UPDATE messages SET status = 'COMPLETE' WHERE conversation_id = :conversationId AND status = 'STREAMING'")
     suspend fun finalizeStreaming(conversationId: String)
 
-    @Query("DELETE FROM messages WHERE conversation_id = :conversationId")
-    suspend fun deleteForConversation(conversationId: String)
+    // ---------------------------------------------------------- 同步
+
+    @Query("SELECT * FROM messages WHERE sync_state != 'SYNCED' LIMIT :limit")
+    suspend fun pending(limit: Int): List<MessageEntity>
+
+    @Query("UPDATE messages SET sync_state = 'SYNCED' WHERE id IN (:ids)")
+    suspend fun markSynced(ids: List<String>)
+
+    @Query("DELETE FROM messages WHERE deleted = 1 AND sync_state = 'SYNCED'")
+    suspend fun purgeDeleted()
+
+    @Query("DELETE FROM messages")
+    suspend fun clearAll()
+}
+
+@Dao
+interface SyncMetaDao {
+
+    @Query("SELECT value FROM sync_meta WHERE `key` = :key LIMIT 1")
+    suspend fun get(key: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entity: SyncMetaEntity)
+
+    @Query("DELETE FROM sync_meta")
+    suspend fun clear()
 }
 
 @Dao

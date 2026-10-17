@@ -4,11 +4,13 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muhan.intelligence.BuildConfig
-import com.muhan.intelligence.data.local.UsageStore
 import com.muhan.intelligence.data.remote.ProviderPresets
+import com.muhan.intelligence.data.repository.AuthRepository
+import com.muhan.intelligence.data.repository.CloudQuotaRepository
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
+import com.muhan.intelligence.data.repository.SettingsSyncRepository
 import com.muhan.intelligence.domain.model.ApiFlavor
 import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ConnectionTestResult
@@ -35,9 +37,11 @@ data class SettingsUiState(
     val isDebugBuild: Boolean = BuildConfig.DEBUG,
     val message: String? = null,
     val isLoading: Boolean = true,
-    /** 2.0.2：内置 LLM 月度用量。 */
+    /** 3.1.0：内置 LLM 月度用量（云端）。 */
     val quota: TokenQuota? = null,
-    val quotaStorageReady: Boolean = false,
+    val quotaError: String? = null,
+    val accountEmail: String? = null,
+    val isLoggingOut: Boolean = false,
 )
 
 @HiltViewModel
@@ -46,7 +50,9 @@ class SettingsViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val conversationRepository: ConversationRepository,
     private val logRepository: com.muhan.intelligence.data.local.LogRepository,
-    private val usageStore: UsageStore,
+    private val quotaRepository: CloudQuotaRepository,
+    private val authRepository: AuthRepository,
+    private val settingsSyncRepository: SettingsSyncRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -68,38 +74,69 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            authRepository.sessionState.collect { session ->
+                _state.update { it.copy(accountEmail = session?.email) }
+            }
+        }
         refreshQuota()
     }
 
     fun refreshQuota() {
         viewModelScope.launch {
-            val q = usageStore.current()
-            _state.update { it.copy(quota = q.quota, quotaStorageReady = q.storageReady) }
+            runCatching { quotaRepository.current() }
+                .onSuccess { q -> _state.update { it.copy(quota = q, quotaError = null) } }
+                .onFailure { e ->
+                    _state.update {
+                        it.copy(quotaError = e.message ?: "无法获取云端额度")
+                    }
+                }
         }
     }
 
-    fun hasStorageAccess(): Boolean = usageStore.hasStorageAccess()
+    fun logout() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoggingOut = true) }
+            runCatching { authRepository.logout() }
+            _state.update { it.copy(isLoggingOut = false) }
+        }
+    }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
     fun setThemeMode(mode: ThemeMode) {
-        viewModelScope.launch { settingsRepository.setThemeMode(mode) }
+        viewModelScope.launch {
+            settingsRepository.setThemeMode(mode)
+            settingsSyncRepository.push()
+        }
     }
 
     fun setDynamicColor(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setDynamicColor(enabled) }
+        viewModelScope.launch {
+            settingsRepository.setDynamicColor(enabled)
+            settingsSyncRepository.push()
+        }
     }
 
     fun setUxImprovement(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setUxImprovement(enabled) }
+        viewModelScope.launch {
+            settingsRepository.setUxImprovement(enabled)
+            settingsSyncRepository.push()
+        }
     }
 
     fun setTtsEnabled(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setTtsEnabled(enabled) }
+        viewModelScope.launch {
+            settingsRepository.setTtsEnabled(enabled)
+            settingsSyncRepository.push()
+        }
     }
 
     fun setTtsVoice(voice: String) {
-        viewModelScope.launch { settingsRepository.setTtsVoice(voice) }
+        viewModelScope.launch {
+            settingsRepository.setTtsVoice(voice)
+            settingsSyncRepository.push()
+        }
     }
 
     // ------------------------------------------------------- 诊断日志 (0.2.0 Fix2)

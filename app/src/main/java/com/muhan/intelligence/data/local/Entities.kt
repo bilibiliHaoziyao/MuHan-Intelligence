@@ -20,6 +20,10 @@ data class ConversationEntity(
     @ColumnInfo(name = "message_count") val messageCount: Int,
     /** 3.0.0：会话模式，"chat" 或 "agent"。 */
     val mode: String = "chat",
+    /** 3.1.0：同步状态 PENDING / SYNCED。 */
+    @ColumnInfo(name = "sync_state", defaultValue = "PENDING") val syncState: String = "PENDING",
+    /** 3.1.0：软删除（同步删除需要墓碑）。 */
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
 )
 
 @Entity(
@@ -47,6 +51,8 @@ data class MessageEntity(
     @ColumnInfo(name = "error_message") val errorMessage: String?,
     @ColumnInfo(name = "model_name") val modelName: String?,
     @ColumnInfo(name = "created_at") val createdAt: Long,
+    /** 3.1.0：同步游标字段。 */
+    @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = createdAt,
     @ColumnInfo(name = "token_count") val tokenCount: Int?,
     /** JSON-encoded list of MessageAttachment; "[]" when the turn has none. */
     val attachments: String = "[]",
@@ -54,6 +60,17 @@ data class MessageEntity(
     @ColumnInfo(name = "image_url") val imageUrl: String? = null,
     /** 3.0.0：Agent 工具调用轨迹（JSON 数组）。 */
     @ColumnInfo(name = "agent_trace") val agentTrace: String = "[]",
+    /** 3.1.0：同步状态 PENDING / SYNCED。 */
+    @ColumnInfo(name = "sync_state", defaultValue = "PENDING") val syncState: String = "PENDING",
+    /** 3.1.0：软删除。 */
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
+)
+
+/** 同步元数据（游标等）。 */
+@Entity(tableName = "sync_meta")
+data class SyncMetaEntity(
+    @PrimaryKey val key: String,
+    val value: String,
 )
 
 @Entity(tableName = "providers")
