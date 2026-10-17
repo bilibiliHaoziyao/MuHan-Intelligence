@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,7 +28,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Icon
@@ -53,6 +56,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.muhan.intelligence.domain.model.MessageAttachment
 
 /**
  * The composer.
@@ -63,6 +67,7 @@ import androidx.compose.ui.unit.sp
  * field toggles deep thinking / web search / image mode, and the "+" button opens
  * the attachment pickers.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChatInputBar(
     value: String,
@@ -83,6 +88,9 @@ fun ChatInputBar(
     recordingSeconds: Int = 0,
     voiceHint: String? = null,
     micEnabled: Boolean = true,
+    pendingAttachments: List<MessageAttachment> = emptyList(),
+    onAddAttachment: () -> Unit = {},
+    onRemoveAttachment: (String) -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
     val focusManager = LocalFocusManager.current
@@ -117,6 +125,23 @@ fun ChatInputBar(
                 }
             }
 
+            if (pendingAttachments.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 6.dp, bottom = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    pendingAttachments.forEach { attachment ->
+                        AttachmentChip(
+                            attachment = attachment,
+                            onRemove = { onRemoveAttachment(attachment.id) },
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -133,9 +158,24 @@ fun ChatInputBar(
                         },
                         shape = RoundedCornerShape(24.dp),
                     )
-                    .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = 8.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(19.dp))
+                        .clickableNoIndication(enabled = enabled, onClick = onAddAttachment),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "添加附件",
+                        tint = if (enabled) scheme.onSurfaceVariant else scheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -262,6 +302,48 @@ private fun CapabilityChip(
             style = MaterialTheme.typography.labelSmall,
             color = fg,
         )
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun AttachmentChip(attachment: MessageAttachment, onRemove: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(scheme.surfaceContainerHigh)
+            .padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (attachment.isImage) Icons.Outlined.Image else Icons.Outlined.Description,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text = attachment.name.take(18),
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(2.dp))
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .clickableNoIndication(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "移除附件",
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(13.dp),
+            )
+        }
     }
 }
 

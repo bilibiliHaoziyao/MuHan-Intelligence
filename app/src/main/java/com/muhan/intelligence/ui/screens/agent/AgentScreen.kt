@@ -33,7 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Psychology
@@ -80,6 +82,7 @@ import com.muhan.intelligence.ui.components.HistoryDrawerContent
 import com.muhan.intelligence.ui.components.MarkdownText
 import com.muhan.intelligence.ui.components.ModeSwitcher
 import com.muhan.intelligence.ui.components.MuHanAvatar
+import com.muhan.intelligence.ui.components.ReasoningPanel
 import com.muhan.intelligence.ui.components.SuggestionChip
 import com.muhan.intelligence.ui.components.clickableNoIndication
 import kotlinx.coroutines.launch
@@ -109,6 +112,10 @@ fun AgentScreen(
     val micGranted = ContextCompat.checkSelfPermission(
         context, Manifest.permission.RECORD_AUDIO,
     ) == PackageManager.PERMISSION_GRANTED
+
+    val attachLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> if (uris.isNotEmpty()) viewModel.addAttachments(uris) }
 
     var searchQuery by remember { mutableStateOf("") }
     var history by remember { mutableStateOf(emptyList<Conversation>()) }
@@ -188,6 +195,7 @@ fun AgentScreen(
                         messages = state.messages,
                         isRunning = state.isRunning,
                         liveContent = state.liveContent,
+                        liveReasoning = state.liveReasoning,
                         liveSteps = state.liveSteps,
                         speakingMessageId = state.speakingMessageId,
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
@@ -214,6 +222,11 @@ fun AgentScreen(
                 recordingSeconds = state.recordingSeconds,
                 voiceHint = state.voiceHint,
                 micEnabled = state.hasProvider,
+                pendingAttachments = state.pendingAttachments,
+                onAddAttachment = {
+                    attachLauncher.launch(arrayOf("image/*", "text/*", "application/json"))
+                },
+                onRemoveAttachment = viewModel::removeAttachment,
                 modifier = Modifier
                     .imePadding()
                     .navigationBarsPadding(),
@@ -320,6 +333,7 @@ private fun AgentMessageList(
     messages: List<ChatMessage>,
     isRunning: Boolean,
     liveContent: String,
+    liveReasoning: String,
     liveSteps: List<AgentStep>,
     speakingMessageId: String?,
     onCopy: (String) -> Unit,
@@ -327,7 +341,7 @@ private fun AgentMessageList(
 ) {
     val listState = rememberLazyListState()
     val lastIndex = messages.size
-    LaunchedEffect(messages.size, liveContent.length, liveSteps.size) {
+    LaunchedEffect(messages.size, liveContent.length, liveReasoning.length, liveSteps.size) {
         val target = if (isRunning) lastIndex else messages.lastIndex
         if (target >= 0) listState.animateScrollToItem(target)
     }
@@ -348,7 +362,11 @@ private fun AgentMessageList(
         }
         if (isRunning) {
             item(key = "agent_live") {
-                AgentLiveBubble(content = liveContent, steps = liveSteps)
+                AgentLiveBubble(
+                    content = liveContent,
+                    reasoning = liveReasoning,
+                    steps = liveSteps,
+                )
             }
         }
     }
@@ -370,11 +388,35 @@ private fun AgentMessageBubble(
                 shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
                 modifier = Modifier.fillMaxWidth(0.82f),
             ) {
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    if (message.content.isNotBlank()) {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    message.attachments.forEach { attachment ->
+                        Row(
+                            modifier = Modifier.padding(top = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = if (attachment.isImage) Icons.Outlined.Image else Icons.Outlined.Description,
+                                contentDescription = null,
+                                tint = scheme.onPrimary.copy(alpha = 0.85f),
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = attachment.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onPrimary.copy(alpha = 0.9f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
         return
@@ -405,6 +447,15 @@ private fun AgentMessageBubble(
         }
 
         Spacer(Modifier.height(8.dp))
+
+        if (message.hasReasoning) {
+            ReasoningPanel(
+                reasoning = message.reasoningContent,
+                streaming = false,
+                defaultExpanded = false,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
 
         if (message.hasAgentSteps) {
             AgentStepsPanel(steps = message.agentSteps, running = false)
@@ -445,7 +496,7 @@ private fun AgentMessageBubble(
 }
 
 @Composable
-private fun AgentLiveBubble(content: String, steps: List<AgentStep>) {
+private fun AgentLiveBubble(content: String, reasoning: String, steps: List<AgentStep>) {
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -464,6 +515,14 @@ private fun AgentLiveBubble(content: String, steps: List<AgentStep>) {
             )
         }
         Spacer(Modifier.height(8.dp))
+        if (reasoning.isNotBlank()) {
+            ReasoningPanel(
+                reasoning = reasoning,
+                streaming = content.isBlank() && steps.isEmpty(),
+                defaultExpanded = true,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         if (steps.isNotEmpty()) {
             AgentStepsPanel(steps = steps, running = true)
             Spacer(Modifier.height(8.dp))
@@ -473,7 +532,7 @@ private fun AgentLiveBubble(content: String, steps: List<AgentStep>) {
                 markdown = content,
                 baseStyle = MaterialTheme.typography.bodyLarge,
             )
-        } else if (steps.isEmpty()) {
+        } else if (steps.isEmpty() && reasoning.isBlank()) {
             Text(
                 text = "正在思考…",
                 style = MaterialTheme.typography.bodySmall,

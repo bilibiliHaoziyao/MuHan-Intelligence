@@ -7,6 +7,7 @@ import com.muhan.intelligence.agent.AGENT_SYSTEM_PROMPT
 import com.muhan.intelligence.agent.AgentToolRegistry
 import com.muhan.intelligence.audio.AudioPlayer
 import com.muhan.intelligence.audio.AudioRecorder
+import com.muhan.intelligence.data.local.AttachmentStore
 import com.muhan.intelligence.data.local.LogRepository
 import com.muhan.intelligence.data.local.UsageStore
 import com.muhan.intelligence.data.remote.AudioRemoteDataSource
@@ -16,6 +17,7 @@ import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
 import com.muhan.intelligence.domain.model.AgentStep
 import com.muhan.intelligence.domain.model.AppPreferences
+import com.muhan.intelligence.domain.model.MessageAttachment
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.GenerationSettings
 import com.muhan.intelligence.domain.model.MODE_AGENT
@@ -56,6 +58,8 @@ data class AgentUiState(
     val isRunning: Boolean = false,
     /** 当前轮正在流式输出的正文。 */
     val liveContent: String = "",
+    /** 当前轮模型输出的思考过程。 */
+    val liveReasoning: String = "",
     /** 当前轮已完成的工具调用步骤。 */
     val liveSteps: List<AgentStep> = emptyList(),
     val activeProvider: ProviderConfig? = null,
@@ -66,10 +70,14 @@ data class AgentUiState(
     val recordingSeconds: Int = 0,
     val voiceHint: String? = null,
     val speakingMessageId: String? = null,
+    /** 待发送附件（图片 + 文本文件）。 */
+    val pendingAttachments: List<MessageAttachment> = emptyList(),
 ) {
     val hasProvider: Boolean get() = activeProvider != null
     val isEmptyConversation: Boolean get() = messages.isEmpty() && !isLoading
-    val canSend: Boolean get() = input.isNotBlank() && !isRunning && activeProvider != null
+    val canSend: Boolean
+        get() = (input.isNotBlank() || pendingAttachments.isNotEmpty()) &&
+            !isRunning && activeProvider != null
 }
 
 /**
@@ -91,6 +99,7 @@ class AgentViewModel @Inject constructor(
     private val audioRemoteDataSource: AudioRemoteDataSource,
     private val audioRecorder: AudioRecorder,
     private val audioPlayer: AudioPlayer,
+    private val attachmentStore: AttachmentStore,
     private val logRepository: LogRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -159,6 +168,24 @@ class AgentViewModel @Inject constructor(
 
     fun dismissBanner() = _uiState.update { it.copy(errorBanner = null) }
 
+    // ------------------------------------------------------------------ 附件
+
+    fun addAttachments(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val imported = uris.mapNotNull { attachmentStore.import(it) }
+            if (imported.isEmpty()) {
+                _uiState.update { it.copy(errorBanner = "无法读取所选文件，请重试。") }
+                return@launch
+            }
+            _uiState.update { it.copy(pendingAttachments = it.pendingAttachments + imported) }
+        }
+    }
+
+    fun removeAttachment(id: String) = _uiState.update {
+        it.copy(pendingAttachments = it.pendingAttachments.filterNot { a -> a.id == id })
+    }
+
     suspend fun observeHistory(query: String): List<Conversation> =
         if (query.isBlank()) {
             conversationRepository.observeConversations(MODE_AGENT).first()
@@ -184,7 +211,7 @@ class AgentViewModel @Inject constructor(
         val state = _uiState.value
         if (state.isRunning) return
         val text = state.input.trim()
-        if (text.isBlank()) return
+        if (text.isEmpty() && state.pendingAttachments.isEmpty()) return
         if (state.activeProvider == null) {
             _uiState.update { it.copy(errorBanner = "尚未配置模型服务，请先在设置中添加。") }
             return
@@ -207,20 +234,40 @@ class AgentViewModel @Inject constructor(
             }
 
             val conversationId = _uiState.value.conversationId
+            val attachments = _uiState.value.pendingAttachments
             conversationRepository.appendMessage(
                 ChatMessage(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     role = Role.USER,
                     content = text,
+                    attachments = attachments,
                 ),
             )
-            conversationRepository.updateTitleFromFirstMessage(conversationId, text)
-            _uiState.update { it.copy(input = "") }
+            if (text.isNotBlank()) {
+                conversationRepository.updateTitleFromFirstMessage(conversationId, text)
+            }
+            _uiState.update { it.copy(input = "", pendingAttachments = emptyList()) }
 
             val history = conversationRepository.loadHistory(conversationId)
             runAgent(provider, history)
         }
+    }
+
+    /** 把文本附件内联进用户消息（图片单独以多模态 part 发送）。 */
+    private fun userContentText(message: ChatMessage): String {
+        if (message.attachments.isEmpty()) return message.content
+        val builder = StringBuilder(message.content)
+        message.attachments.forEach { a ->
+            if (a.isImage) return@forEach
+            val body = attachmentStore.readText(a)
+            if (body != null) {
+                builder.append("\n\n【附件：${a.name}】\n```\n").append(body).append("\n```")
+            } else {
+                builder.append("\n\n（附件 ${a.name} 无法作为文本读取，已跳过）")
+            }
+        }
+        return builder.toString()
     }
 
     private class ToolCallAcc {
@@ -236,7 +283,13 @@ class AgentViewModel @Inject constructor(
             val settings = _uiState.value.generation
             val conversationId = _uiState.value.conversationId
             _uiState.update {
-                it.copy(isRunning = true, liveContent = "", liveSteps = emptyList(), errorBanner = null)
+                it.copy(
+                    isRunning = true,
+                    liveContent = "",
+                    liveReasoning = "",
+                    liveSteps = emptyList(),
+                    errorBanner = null,
+                )
             }
 
             val working = mutableListOf<JsonObject>()
@@ -244,16 +297,48 @@ class AgentViewModel @Inject constructor(
                 put("role", "system")
                 put("content", AGENT_SYSTEM_PROMPT)
             }
+            val newestUserId = history.lastOrNull { it.role == Role.USER }?.id
             history.forEach { m ->
-                if (m.content.isNotBlank() && (m.role == Role.USER || m.role == Role.ASSISTANT)) {
-                    working += buildJsonObject {
-                        put("role", m.role.wireValue)
-                        put("content", m.content)
+                when {
+                    m.role == Role.USER && (m.content.isNotBlank() || m.attachments.isNotEmpty()) -> {
+                        val text = userContentText(m)
+                        val images = if (m.id == newestUserId) {
+                            m.attachments.filter { it.isImage }
+                                .mapNotNull { attachmentStore.imageDataUrl(it) }
+                        } else {
+                            emptyList()
+                        }
+                        working += buildJsonObject {
+                            put("role", "user")
+                            if (images.isEmpty()) {
+                                put("content", text)
+                            } else {
+                                putJsonArray("content") {
+                                    addJsonObject {
+                                        put("type", "text")
+                                        put("text", text)
+                                    }
+                                    images.forEach { url ->
+                                        addJsonObject {
+                                            put("type", "image_url")
+                                            putJsonObject("image_url") { put("url", url) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    m.role == Role.ASSISTANT && m.content.isNotBlank() -> {
+                        working += buildJsonObject {
+                            put("role", "assistant")
+                            put("content", m.content)
+                        }
                     }
                 }
             }
 
             val steps = mutableListOf<AgentStep>()
+            val allReasoning = StringBuilder()
             var totalTokens = 0
             var failure: String? = null
             var finalText = ""
@@ -279,6 +364,10 @@ class AgentViewModel @Inject constructor(
                             is StreamEvent.ContentDelta -> {
                                 contentBuf.append(event.text)
                                 _uiState.update { it.copy(liveContent = contentBuf.toString()) }
+                            }
+                            is StreamEvent.ReasoningDelta -> {
+                                allReasoning.append(event.text)
+                                _uiState.update { it.copy(liveReasoning = allReasoning.toString()) }
                             }
                             is StreamEvent.ToolCallDelta -> {
                                 val acc = calls.getOrPut(event.index) { ToolCallAcc() }
@@ -346,6 +435,7 @@ class AgentViewModel @Inject constructor(
                 persistAssistant(
                     conversationId = conversationId,
                     content = content,
+                    reasoning = allReasoning.toString(),
                     steps = steps,
                     tokenCount = totalTokens,
                     provider = provider,
@@ -364,6 +454,7 @@ class AgentViewModel @Inject constructor(
                     persistAssistant(
                         conversationId = conversationId,
                         content = partial.ifBlank { "（已停止）" },
+                        reasoning = allReasoning.toString(),
                         steps = steps,
                         tokenCount = totalTokens,
                         provider = provider,
@@ -377,7 +468,12 @@ class AgentViewModel @Inject constructor(
                 _uiState.update { it.copy(errorBanner = t.message ?: "Agent 执行失败") }
             } finally {
                 _uiState.update {
-                    it.copy(isRunning = false, liveContent = "", liveSteps = emptyList())
+                    it.copy(
+                        isRunning = false,
+                        liveContent = "",
+                        liveReasoning = "",
+                        liveSteps = emptyList(),
+                    )
                 }
                 agentJob = null
             }
@@ -387,6 +483,7 @@ class AgentViewModel @Inject constructor(
     private suspend fun persistAssistant(
         conversationId: String,
         content: String,
+        reasoning: String,
         steps: List<AgentStep>,
         tokenCount: Int,
         provider: ProviderConfig,
@@ -399,6 +496,7 @@ class AgentViewModel @Inject constructor(
                 conversationId = conversationId,
                 role = Role.ASSISTANT,
                 content = content,
+                reasoningContent = reasoning,
                 status = status,
                 errorMessage = error,
                 modelName = provider.displayModelLabel,

@@ -98,6 +98,11 @@ fun ChatScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) viewModel.startRecording() }
 
+    // 3.0.0：恢复附件上传（图片 + 文本文件）。
+    val attachLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> if (uris.isNotEmpty()) viewModel.addAttachments(uris) }
+
     val micGranted = ContextCompat.checkSelfPermission(
         context, Manifest.permission.RECORD_AUDIO,
     ) == PackageManager.PERMISSION_GRANTED
@@ -218,6 +223,11 @@ fun ChatScreen(
                 recordingSeconds = state.recordingSeconds,
                 voiceHint = state.voiceHint,
                 micEnabled = state.hasProvider,
+                pendingAttachments = state.pendingAttachments,
+                onAddAttachment = {
+                    attachLauncher.launch(arrayOf("image/*", "text/*", "application/json"))
+                },
+                onRemoveAttachment = viewModel::removeAttachment,
                 modifier = Modifier
                     .imePadding()
                     .navigationBarsPadding(),

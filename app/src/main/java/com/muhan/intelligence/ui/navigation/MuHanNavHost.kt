@@ -85,6 +85,12 @@ fun MuHanNavHost(
                     defaultValue = null
                 },
             ),
+            // 3.0.0：Chat / Agent 是同一应用内的两种模式，切换只做淡入淡出，
+            // 不做左右滑动，避免「换了一个页面」的撕裂感。
+            enterTransition = { fadeIn(tween(180)) },
+            exitTransition = { fadeOut(tween(140)) },
+            popEnterTransition = { fadeIn(tween(180)) },
+            popExitTransition = { fadeOut(tween(140)) },
         ) {
             ChatRouteCommon(navController = navController)
         }
@@ -99,6 +105,10 @@ fun MuHanNavHost(
                     defaultValue = null
                 },
             ),
+            enterTransition = { fadeIn(tween(180)) },
+            exitTransition = { fadeOut(tween(140)) },
+            popEnterTransition = { fadeIn(tween(180)) },
+            popExitTransition = { fadeOut(tween(140)) },
         ) {
             AgentRouteCommon(navController = navController)
         }
@@ -167,8 +177,8 @@ private fun ChatRouteCommon(navController: NavHostController) {
             }
         },
         onSwitchToAgent = {
-            navController.navigate(Routes.agent()) {
-                popUpTo(Routes.CHAT_ROUTE) { inclusive = true }
+            // 不销毁 Chat 页面：切换只是压栈，返回即可回到原来的会话与草稿。
+            navController.navigate(Routes.AGENT) {
                 launchSingleTop = true
             }
         },
@@ -192,9 +202,9 @@ private fun AgentRouteCommon(navController: NavHostController) {
             }
         },
         onSwitchToChat = {
-            navController.navigate(Routes.CHAT) {
-                popUpTo(Routes.AGENT_ROUTE) { inclusive = true }
-                launchSingleTop = true
+            // 返回到栈中的 Chat 页面，保留其会话与滚动位置。
+            if (!navController.popBackStack()) {
+                navController.navigate(Routes.CHAT) { launchSingleTop = true }
             }
         },
     )

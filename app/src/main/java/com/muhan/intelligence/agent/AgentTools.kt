@@ -1,18 +1,26 @@
 package com.muhan.intelligence.agent
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
+import android.os.Environment
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,6 +60,18 @@ class AgentToolRegistry @Inject constructor(
         SaveNoteTool(context),
         ReadNoteTool(context),
         ListNotesTool(context),
+        ListFilesTool(context),
+        ReadFileTool(context),
+        WriteFileTool(context),
+        AppendFileTool(context),
+        EditFileTool(context),
+        DeleteFileTool(context),
+        MakeDirTool(context),
+        MoveFileTool(context),
+        SearchFilesTool(context),
+        WeatherTool(),
+        HttpRequestTool(),
+        ClipboardTool(context),
     )
 
     private val byName: Map<String, AgentTool> = tools.associateBy { it.spec.name }
@@ -84,6 +104,18 @@ class AgentToolRegistry @Inject constructor(
         "save_note" -> "保存笔记"
         "read_note" -> "读取笔记"
         "list_notes" -> "列出笔记"
+        "list_files" -> "列出文件"
+        "read_file" -> "读取文件"
+        "write_file" -> "创建/写入文件"
+        "append_file" -> "追加内容"
+        "edit_file" -> "编辑文件"
+        "delete_file" -> "删除文件"
+        "make_dir" -> "创建目录"
+        "move_file" -> "移动/重命名"
+        "search_files" -> "搜索文件"
+        "get_weather" -> "查询天气"
+        "http_request" -> "网络请求"
+        "write_clipboard" -> "复制到剪贴板"
         "web_search" -> "联网搜索"
         else -> name
     }
@@ -291,14 +323,376 @@ private class ListNotesTool(private val context: Context) : AgentTool {
     }
 }
 
+// ------------------------------------------------------------------ 文件工作区
+
+/**
+ * Agent 文件工作区：
+ * - 已授予「所有文件访问」时用公共存储 MuHan/agent（用户可用文件管理器查看/编辑）；
+ * - 否则回退到 App 私有目录 agent_workspace（卸载即清除）。
+ */
+private fun workspaceRoot(context: Context): File {
+    val publicReady = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+        Environment.isExternalStorageManager()
+    val root = if (publicReady) {
+        File(Environment.getExternalStorageDirectory(), "MuHan/agent")
+    } else {
+        File(context.filesDir, "agent_workspace")
+    }
+    root.mkdirs()
+    return root
+}
+
+/** 把相对路径解析为工作区内的文件，禁止 `..` 越界。 */
+private fun resolveInWorkspace(context: Context, path: String): File {
+    val root = workspaceRoot(context)
+    val clean = path.trim().trimStart('/').replace('\\', '/')
+    require(clean.split('/').none { it == ".." }) { "路径不允许包含 .." }
+    val target = File(root, clean)
+    val rootPath = root.canonicalPath
+    val targetPath = target.canonicalPath
+    require(targetPath == rootPath || targetPath.startsWith(rootPath + File.separator)) {
+        "路径越界：只能访问工作区内的文件"
+    }
+    return target
+}
+
+private fun humanSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
+    else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+}
+
+private fun isProbablyText(bytes: ByteArray): Boolean =
+    bytes.take(512).none { it == 0.toByte() }
+
+private class ListFilesTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "list_files",
+        description = "列出 Agent 文件工作区中某个目录下的文件与子目录（默认根目录）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的目录路径，留空表示根目录"}},"required":[]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val dir = resolveInWorkspace(context, path)
+        if (!dir.exists()) return "目录不存在：${path.ifBlank { "/" }}"
+        if (!dir.isDirectory) return "不是目录：$path"
+        val entries = dir.listFiles()
+            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+            .orEmpty()
+        if (entries.isEmpty()) return "目录为空"
+        val root = workspaceRoot(context)
+        val lines = entries.take(100).map { f ->
+            val rel = f.absolutePath.removePrefix(root.absolutePath).trimStart('/')
+            if (f.isDirectory) "[目录] $rel/" else "[文件] $rel (${humanSize(f.length())})"
+        }
+        return buildString {
+            append(lines.joinToString("\n"))
+            if (entries.size > 100) append("\n…共 ${entries.size} 项，仅显示前 100 项")
+        }
+    }
+}
+
+private class ReadFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "read_file",
+        description = "读取工作区内文本文件的内容（最多返回 8000 字符）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的文件路径"}},"required":["path"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val file = resolveInWorkspace(context, path)
+        if (!file.exists() || !file.isFile) return "文件不存在：$path"
+        if (file.length() > 512 * 1024) return "文件过大（>512KB），请改用 search_files 检索"
+        val bytes = file.readBytes()
+        if (!isProbablyText(bytes)) return "二进制文件，无法作为文本读取"
+        val text = String(bytes, Charsets.UTF_8)
+        return if (text.length > 8000) {
+            text.take(8000) + "\n…（已截断，共 ${text.length} 字符）"
+        } else {
+            text
+        }
+    }
+}
+
+private class WriteFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "write_file",
+        description = "创建或覆盖工作区内的文本文件（自动创建父目录）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的文件路径，如 notes/todo.md"},"content":{"type":"string","description":"要写入的完整内容"}},"required":["path","content"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val content = arguments["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return "path 不能为空"
+        if (content.length > 200_000) return "内容过大（上限 200000 字符）"
+        val file = resolveInWorkspace(context, path)
+        if (file.exists() && file.isDirectory) return "同名目录已存在：$path"
+        file.parentFile?.mkdirs()
+        file.writeText(content)
+        return "已写入 $path（${content.length} 字符）"
+    }
+}
+
+private class AppendFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "append_file",
+        description = "在文件末尾追加内容（文件不存在时自动创建）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的文件路径"},"content":{"type":"string","description":"要追加的内容"}},"required":["path","content"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val content = arguments["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return "path 不能为空"
+        val file = resolveInWorkspace(context, path)
+        if (file.exists() && file.isDirectory) return "同名目录已存在：$path"
+        file.parentFile?.mkdirs()
+        file.appendText(content)
+        return "已追加到 $path（+${content.length} 字符）"
+    }
+}
+
+private class EditFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "edit_file",
+        description = "精确编辑文件：把 old_text 替换为 new_text（old_text 必须在文件中唯一出现）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的文件路径"},"old_text":{"type":"string","description":"要被替换的原文片段"},"new_text":{"type":"string","description":"替换后的新内容"}},"required":["path","old_text","new_text"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val oldText = arguments["old_text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val newText = arguments["new_text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (oldText.isBlank()) return "old_text 不能为空"
+        val file = resolveInWorkspace(context, path)
+        if (!file.exists() || !file.isFile) return "文件不存在：$path"
+        if (file.length() > 512 * 1024) return "文件过大，无法编辑"
+        val text = file.readText()
+        val count = Regex(Regex.escape(oldText)).findAll(text).count()
+        if (count == 0) return "未找到要替换的内容，请先用 read_file 确认原文"
+        if (count > 1) return "old_text 出现了 $count 次，请提供更长、更精确的片段"
+        file.writeText(text.replaceFirst(oldText, newText))
+        return "已编辑 $path"
+    }
+}
+
+private class DeleteFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "delete_file",
+        description = "删除工作区内的文件或目录（目录会递归删除）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的文件或目录路径"}},"required":["path"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return "path 不能为空"
+        val file = resolveInWorkspace(context, path)
+        if (!file.exists()) return "文件不存在：$path"
+        val count = if (file.isDirectory) file.walkBottomUp().count { it.isFile } else 1
+        val ok = if (file.isDirectory) file.deleteRecursively() else file.delete()
+        return if (ok) "已删除 $path（$count 个文件）" else "删除失败：$path"
+    }
+}
+
+private class MakeDirTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "make_dir",
+        description = "在工作区创建目录（含多级父目录）。",
+        parametersJson = """{"type":"object","properties":{"path":{"type":"string","description":"相对工作区的目录路径"}},"required":["path"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return "path 不能为空"
+        val dir = resolveInWorkspace(context, path)
+        return if (dir.mkdirs() || dir.isDirectory) "已创建目录 $path" else "创建失败：$path"
+    }
+}
+
+private class MoveFileTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "move_file",
+        description = "移动或重命名工作区内的文件/目录。",
+        parametersJson = """{"type":"object","properties":{"from":{"type":"string","description":"源路径"},"to":{"type":"string","description":"目标路径"}},"required":["from","to"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val from = arguments["from"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val to = arguments["to"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (from.isBlank() || to.isBlank()) return "from 与 to 均不能为空"
+        val src = resolveInWorkspace(context, from)
+        val dst = resolveInWorkspace(context, to)
+        if (!src.exists()) return "源不存在：$from"
+        if (dst.exists()) return "目标已存在：$to"
+        dst.parentFile?.mkdirs()
+        val ok = src.renameTo(dst)
+        if (!ok) {
+            runCatching {
+                src.copyRecursively(dst, overwrite = false)
+                src.deleteRecursively()
+            }.getOrElse { return "移动失败：${it.message}" }
+        }
+        return "已移动 $from → $to"
+    }
+}
+
+private class SearchFilesTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "search_files",
+        description = "按关键词搜索工作区内的文件名与文本内容，返回匹配位置片段。",
+        parametersJson = """{"type":"object","properties":{"keyword":{"type":"string","description":"要搜索的关键词"},"path":{"type":"string","description":"限定搜索的子目录，留空表示整个工作区"}},"required":["keyword"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val keyword = arguments["keyword"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (keyword.isBlank()) return "keyword 不能为空"
+        val root = resolveInWorkspace(
+            context,
+            arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        )
+        if (!root.exists()) return "目录不存在"
+        val rootPath = workspaceRoot(context).absolutePath
+        val results = mutableListOf<String>()
+        var scanned = 0
+        root.walkTopDown().forEach { f ->
+            if (results.size >= 20 || scanned >= 400) return@forEach
+            if (!f.isFile) return@forEach
+            scanned++
+            val rel = f.absolutePath.removePrefix(rootPath).trimStart('/')
+            if (f.name.contains(keyword, ignoreCase = true) && results.size < 20) {
+                results += "[文件名] $rel"
+            }
+            if (f.length() <= 512 * 1024) {
+                val text = runCatching { f.readText() }.getOrNull() ?: return@forEach
+                if (text.contains(keyword, ignoreCase = true)) {
+                    val line = text.lineSequence().indexOfFirst {
+                        it.contains(keyword, ignoreCase = true)
+                    } + 1
+                    val snippet = text.lineSequence().elementAtOrNull(line - 1)?.trim()?.take(120).orEmpty()
+                    if (results.size < 20) results += "[内容] $rel:$line  $snippet"
+                }
+            }
+        }
+        return if (results.isEmpty()) "未找到包含「$keyword」的内容" else results.joinToString("\n")
+    }
+}
+
+// ------------------------------------------------------------------ 天气 / HTTP / 剪贴板
+
+private class WeatherTool : AgentTool {
+    private val json = Json { ignoreUnknownKeys = true }
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
+
+    override val spec = ToolSpec(
+        name = "get_weather",
+        description = "查询城市当前天气与未来两天预报（无需 API Key）。",
+        parametersJson = """{"type":"object","properties":{"city":{"type":"string","description":"城市名，如 北京、上海、Tokyo"}},"required":["city"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val city = arguments["city"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (city.isBlank()) return "city 不能为空"
+        val url = "https://wttr.in/${URLEncoder.encode(city, "UTF-8")}?format=j1&lang=zh"
+        val raw = client.newCall(
+            Request.Builder().url(url).header("User-Agent", "curl/8.0").build(),
+        ).execute().use { res ->
+            if (!res.isSuccessful) return "天气服务返回 HTTP ${res.code}"
+            res.body?.string().orEmpty()
+        }
+        val root = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull()
+            ?: return "天气数据解析失败"
+        val current = (root["current_condition"] as? kotlinx.serialization.json.JsonArray)
+            ?.firstOrNull() as? JsonObject
+        val desc = run {
+            val localized = ((current?.get("lang_zh") as? kotlinx.serialization.json.JsonArray)
+                ?.firstOrNull() as? JsonObject)
+            val fallback = ((current?.get("weatherDesc") as? kotlinx.serialization.json.JsonArray)
+                ?.firstOrNull() as? JsonObject)
+            (localized ?: fallback)?.get("value")?.jsonPrimitive?.contentOrNull.orEmpty()
+        }
+        val text = buildString {
+            append("$city 当前：${current?.get("temp_C")?.jsonPrimitive?.contentOrNull ?: "-"}℃，")
+            append("$desc，体感 ${current?.get("FeelsLikeC")?.jsonPrimitive?.contentOrNull ?: "-"}℃，")
+            append("湿度 ${current?.get("humidity")?.jsonPrimitive?.contentOrNull ?: "-"}%\n")
+            val days = root["weather"] as? kotlinx.serialization.json.JsonArray
+            days?.take(3)?.forEach { d ->
+                val o = d as? JsonObject ?: return@forEach
+                append("${o["date"]?.jsonPrimitive?.contentOrNull.orEmpty()}：")
+                append("${o["mintempC"]?.jsonPrimitive?.contentOrNull.orEmpty()}~")
+                append("${o["maxtempC"]?.jsonPrimitive?.contentOrNull.orEmpty()}℃\n")
+            }
+        }
+        return text.trim()
+    }
+}
+
+private class HttpRequestTool : AgentTool {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .build()
+
+    override val spec = ToolSpec(
+        name = "http_request",
+        description = "发起 HTTP 请求调用公开接口（GET/POST），返回状态码与响应正文（截断 4000 字符）。",
+        parametersJson = """{"type":"object","properties":{"url":{"type":"string","description":"http/https 地址"},"method":{"type":"string","description":"GET 或 POST，默认 GET"},"body":{"type":"string","description":"POST 的请求体（JSON 字符串，可选）"}},"required":["url"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val url = arguments["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+            return "url 必须以 http:// 或 https:// 开头"
+        }
+        val method = (arguments["method"]?.jsonPrimitive?.contentOrNull ?: "GET").uppercase()
+        val bodyText = arguments["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val builder = Request.Builder().url(url).header("User-Agent", "MuHanAgent/3.0")
+        if (method == "POST") {
+            builder.post(bodyText.toRequestBody("application/json".toMediaType()))
+        }
+        val (code, text) = client.newCall(builder.build()).execute().use { res ->
+            res.code to res.body?.string().orEmpty()
+        }
+        return "HTTP $code\n${text.take(4000)}"
+    }
+}
+
+private class ClipboardTool(private val context: Context) : AgentTool {
+    override val spec = ToolSpec(
+        name = "write_clipboard",
+        description = "把一段文本复制到系统剪贴板，方便用户直接粘贴。",
+        parametersJson = """{"type":"object","properties":{"text":{"type":"string","description":"要复制的文本"}},"required":["text"]}""",
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val text = arguments["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (text.isBlank()) return "text 不能为空"
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return "系统剪贴板不可用"
+        cm.setPrimaryClip(ClipData.newPlainText("MuHan Intelligence", text))
+        return "已复制到剪贴板（${text.length} 字）"
+    }
+}
+
 /** Agent 模式系统提示词。 */
 const val AGENT_SYSTEM_PROMPT: String =
     "你是 MuHan Intelligence 的 Agent 模式，运行在用户手机上，可以自主调用工具完成任务。\n" +
-        "可用能力：联网搜索（web_search，服务端自动执行）、当前时间（get_time）、数学计算（calculate）、" +
-        "读取网页（fetch_url）、本地笔记（save_note / read_note / list_notes）。\n" +
+        "可用能力：\n" +
+        "• 联网搜索 web_search（服务端执行，用于实时信息）\n" +
+        "• 读取网页 fetch_url\n" +
+        "• 时间 get_time、计算 calculate\n" +
+        "• 文件工作区（MuHan/agent）：list_files / read_file / write_file / append_file / edit_file / delete_file / make_dir / move_file / search_files\n" +
+        "• 天气 get_weather、通用接口调用 http_request、复制到剪贴板 write_clipboard\n" +
+        "• 笔记：save_note / read_note / list_notes\n" +
         "工作规则：\n" +
         "1. 需要实时信息（新闻、行情、最新资料）时先使用联网搜索或读取网页，不要凭空编造。\n" +
-        "2. 复杂任务拆成多步，必要时连续调用多个工具，拿到足够信息后再给出最终答案。\n" +
-        "3. 工具返回内容可能很长，只提炼与用户问题相关的部分。\n" +
-        "4. 最终回答使用中文、简洁直接；引用网络信息时给出链接。\n" +
-        "5. 不要向用户展示工具调用的内部参数或实现细节。"
+        "2. 涉及文件操作时先 list_files 或 read_file 了解现状，再执行写入/编辑/删除；删除前须确认目标无误。\n" +
+        "3. 复杂任务拆成多步，必要时连续调用多个工具，拿到足够信息后再给出最终答案。\n" +
+        "4. 工具返回内容可能很长，只提炼与用户问题相关的部分。\n" +
+        "5. 最终回答使用中文、简洁直接；引用网络信息时给出链接；写明创建/修改了哪个文件。\n" +
+        "6. 所有文件操作限定在 Agent 工作区内，不要尝试访问其他目录。"
