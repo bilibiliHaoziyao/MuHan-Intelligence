@@ -4,7 +4,7 @@
 
 **由你自己掌管 API Key 的原生 Android AI 对话应用**
 
-[![version](https://img.shields.io/badge/version-1.0.1-6D5BF6)](../../releases)
+[![version](https://img.shields.io/badge/version-1.0.2-6D5BF6)](../../releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)](https://developer.android.com/jetpack/compose)
@@ -72,11 +72,11 @@
 
 ## 下载
 
-前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-1.0.1-release.apk` 直接安装。
+前往 [Releases](../../releases/latest) 下载 `MuHan-Intelligence-1.0.2-release.apk` 直接安装。
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MuHan-Intelligence-1.0.1-release.apk` | 约 2.5 MB | 混淆压缩后的发布版（自 0.2.0 Fix2 起不再提供 Debug APK） |
+| `MuHan-Intelligence-1.0.2-release.apk` | 约 2.5 MB | 混淆压缩后的发布版（自 0.2.0 Fix2 起不再提供 Debug APK） |
 | `SHA256SUMS.txt` | — | 上述文件的 SHA-256 校验值 |
 
 核对下载完整性：
