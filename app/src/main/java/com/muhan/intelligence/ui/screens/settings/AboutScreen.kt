@@ -27,8 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,18 +76,7 @@ fun AboutScreen(
                 color = scheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(20.dp))
-
-            Text(
-                text = "一个完全由你掌控 API Key 的 AI 对话客户端。无需注册账号，" +
-                    "对话记录与密钥只保存在本机，支持接入 DeepSeek、Kimi、智谱、" +
-                    "通义千问、OpenAI、Claude、Gemini 等主流模型服务。",
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
 
             SectionLabel("作者链接")
             Spacer(Modifier.height(8.dp))
