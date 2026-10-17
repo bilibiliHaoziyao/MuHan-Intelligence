@@ -298,8 +298,8 @@ export default {
 
         const upstream = await fetch(row.download_url, { redirect: "follow" });
         if (!upstream.ok || !upstream.body) {
-          console.error("download upstream failed", upstream.status);
-          throw new HttpError("获取安装包失败，请稍后重试", 502);
+          console.error("download upstream failed", upstream.status, row.download_url);
+          throw new HttpError(`获取安装包失败（上游 ${upstream.status}），请稍后重试`, 502);
         }
 
         return new Response(upstream.body, {
@@ -327,23 +327,25 @@ export default {
           .bind(minCode)
           .first<any>();
 
+        // 注意：表里存的是「源站直链」，对外返回「本 Worker 的中转地址」。
+        // 之前把中转地址写回表里，导致 /download/:code 去 fetch 自己，无限递归 502。
         return withCors(
           json({
             latest: {
               code: latest.version_code,
               name: latest.version_name,
-              url: latest.download_url,
+              url: `${url.origin}/download/${latest.version_code}`,
             },
             minSupported: minRow
               ? {
                   code: minRow.version_code,
                   name: minRow.version_name,
-                  url: minRow.download_url,
+                  url: `${url.origin}/download/${minRow.version_code}`,
                 }
               : {
                   code: latest.version_code,
                   name: latest.version_name,
-                  url: latest.download_url,
+                  url: `${url.origin}/download/${latest.version_code}`,
                 },
             serverTime: Date.now(),
           }),
