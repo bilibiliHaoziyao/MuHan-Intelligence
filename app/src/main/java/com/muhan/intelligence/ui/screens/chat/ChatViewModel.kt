@@ -1,5 +1,6 @@
 package com.muhan.intelligence.ui.screens.chat
 
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -225,7 +226,7 @@ class ChatViewModel @Inject constructor(
     fun startRecording() {
         if (_uiState.value.isRecording) return
         if (!audioRecorder.start()) {
-            _uiState.update { it.copy(voiceHint = "无法启动录音，请检查麦克风权限") }
+            _uiState.update { it.copy(voiceHint = "打不开麦克风，检查一下权限") }
             clearVoiceHint()
             return
         }
@@ -247,7 +248,7 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(isRecording = false) }
         val wav = audioRecorder.stop()
         if (wav == null) {
-            _uiState.update { it.copy(voiceHint = "录音太短，请重试") }
+            _uiState.update { it.copy(voiceHint = "太短了，再说一次") }
             clearVoiceHint()
             return
         }
@@ -258,7 +259,7 @@ class ChatViewModel @Inject constructor(
                     onSuccess = { text ->
                         val trimmed = text.trim()
                         if (trimmed.isEmpty()) {
-                            _uiState.update { it.copy(voiceHint = "没有听清，请重试") }
+                            _uiState.update { it.copy(voiceHint = "没听清，再说一次") }
                         } else {
                             val current = _uiState.value.input
                             val merged = if (current.isBlank()) trimmed else "$current$trimmed"
@@ -267,7 +268,7 @@ class ChatViewModel @Inject constructor(
                         }
                     },
                     onFailure = { e ->
-                        _uiState.update { it.copy(voiceHint = e.message ?: "识别失败，请重试") }
+                        _uiState.update { it.copy(voiceHint = e.message ?: "识别失败，再试一次") }
                     },
                 )
             clearVoiceHint()
@@ -311,7 +312,7 @@ class ChatViewModel @Inject constructor(
             val wav = runCatching { audioRemoteDataSource.synthesize(text, ttsVoice) }
                 .getOrElse { e ->
                     _uiState.update { it.copy(speakingMessageId = null) }
-                    _uiState.update { it.copy(errorBanner = e.message ?: "语音合成失败") }
+                    _uiState.update { it.copy(errorBanner = e.message ?: "朗读失败") }
                     return@launch
                 }
             val started = audioPlayer.play(wav) {
@@ -319,7 +320,7 @@ class ChatViewModel @Inject constructor(
             }
             if (!started) {
                 _uiState.update { it.copy(speakingMessageId = null) }
-                _uiState.update { it.copy(errorBanner = "语音播放失败") }
+                _uiState.update { it.copy(errorBanner = "播放失败") }
             }
         }
     }
@@ -384,7 +385,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val imported = uris.mapNotNull { attachmentStore.import(it) }
             if (imported.isEmpty()) {
-                _uiState.update { it.copy(errorBanner = "无法读取所选文件，请重试。") }
+                _uiState.update { it.copy(errorBanner = "这个文件读不了，换一个试试。") }
                 return@launch
             }
             _uiState.update { it.copy(pendingAttachments = it.pendingAttachments + imported) }
@@ -469,7 +470,7 @@ class ChatViewModel @Inject constructor(
         if (text.isEmpty() && state.pendingAttachments.isEmpty()) return
 
         if (state.activeProvider == null) {
-            _uiState.update { it.copy(errorBanner = "尚未配置模型服务，请先前往「设置 → 模型服务」添加。") }
+            _uiState.update { it.copy(errorBanner = "还没有模型服务，去「设置 → 模型服务」添加。") }
             return
         }
 
@@ -482,13 +483,13 @@ class ChatViewModel @Inject constructor(
                 if (provider.isBuiltIn) {
                     val quota = runCatching { quotaRepository.current() }.getOrElse { e ->
                         _uiState.update {
-                            it.copy(errorBanner = "无法获取云端额度：${e.message ?: "请检查网络"}")
+                            it.copy(errorBanner = "拿不到云端额度：${e.message ?: "检查下网络"}")
                         }
                         return@launch
                     }
                     if (quota.isExhausted) {
                         _uiState.update {
-                            it.copy(errorBanner = "本月 10 万 token 额度已用尽，将于每月 1 日恢复")
+                            it.copy(errorBanner = "本月额度用完了，每月 1 日恢复")
                         }
                         return@launch
                     }
@@ -519,7 +520,7 @@ class ChatViewModel @Inject constructor(
             } catch (t: Throwable) {
                 // 0.2.0 Fix: 发送链路任何异常只提示，不闪退。
                 _uiState.update {
-                    it.copy(errorBanner = t.message ?: "发送失败，请稍后重试。")
+                    it.copy(errorBanner = t.message ?: "没发出去，再试一次。")
                 }
             }
         }
@@ -530,7 +531,7 @@ class ChatViewModel @Inject constructor(
         val prompt = state.input.trim()
         if (prompt.isEmpty()) return
         if (!state.supportsImageGeneration) {
-            _uiState.update { it.copy(errorBanner = "请先在「设置 → 模型服务」中为当前服务填写生图模型。") }
+            _uiState.update { it.copy(errorBanner = "当前服务没填生图模型，去「设置 → 模型服务」补上。") }
             return
         }
 
@@ -587,7 +588,7 @@ class ChatViewModel @Inject constructor(
                     }.onFailure { t ->
                         streamingMessage.value = null
                         _uiState.update {
-                            it.copy(errorBanner = t.message ?: "生图结果保存失败。")
+                            it.copy(errorBanner = t.message ?: "图片存不下来。")
                         }
                     }
                 },
@@ -595,7 +596,7 @@ class ChatViewModel @Inject constructor(
                     runCatching { conversationRepository.deleteMessage(placeholderId) }
                     streamingMessage.value = null
                     _uiState.update {
-                        it.copy(errorBanner = error.message ?: "生图失败，请稍后重试。")
+                        it.copy(errorBanner = error.message ?: "出图失败，再试一次。")
                     }
                 },
             )
@@ -662,6 +663,9 @@ class ChatViewModel @Inject constructor(
             var reasoning = StringBuilder()
             var tokenCount: Int? = null
             var failureMessage: String? = null
+            // 3.1.0：流式节流——每个 token 都推 UI 会让 Markdown 全文反复解析、
+            // 整页重组，长回复时明显掉帧且费电。这里按固定间隔合并上屏。
+            var lastPublish = 0L
 
             try {
                 // 0.2.0 Fix: 出站构建（附件读取/base64 编码）也放进保护内——
@@ -681,11 +685,19 @@ class ChatViewModel @Inject constructor(
                     when (event) {
                         is StreamEvent.ContentDelta -> {
                             content.append(event.text)
-                            publishStreaming(assistantId, content.toString(), reasoning.toString())
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastPublish >= STREAM_PUBLISH_INTERVAL_MS) {
+                                lastPublish = now
+                                publishStreaming(assistantId, content.toString(), reasoning.toString())
+                            }
                         }
                         is StreamEvent.ReasoningDelta -> {
                             reasoning.append(event.text)
-                            publishStreaming(assistantId, content.toString(), reasoning.toString())
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastPublish >= STREAM_PUBLISH_INTERVAL_MS) {
+                                lastPublish = now
+                                publishStreaming(assistantId, content.toString(), reasoning.toString())
+                            }
                         }
                         is StreamEvent.Usage -> tokenCount = event.promptTokens + event.completionTokens
                         // 对话模式不下发工具定义，不会出现工具调用。
@@ -705,6 +717,11 @@ class ChatViewModel @Inject constructor(
                 // provider quirks) had no handler and killed the whole process.
                 failureMessage = t.message ?: t.javaClass.simpleName
                 logRepository.warn("Chat", "流式生成失败：$failureMessage", t)
+            }
+
+            // 3.1.0：补发最后一帧，避免节流把尾部内容吞掉。
+            if (content.isNotEmpty() || reasoning.isNotEmpty()) {
+                publishStreaming(assistantId, content.toString(), reasoning.toString())
             }
 
             persistJob?.cancel()
@@ -749,7 +766,7 @@ class ChatViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isGenerating = false,
-                        infoBanner = failureMessage?.let { m -> "生成中断：$m" },
+                        infoBanner = failureMessage?.let { m -> "中断了：$m" },
                     )
                 }
                 // 2.0.2：内置 LLM 用量记账（按服务端返回的输入+输出 token）。
@@ -849,7 +866,11 @@ class ChatViewModel @Inject constructor(
     }
 
     private companion object {
-        const val PERSIST_INTERVAL_MS = 400L
+        /** 流式期间落库间隔（3.1.0 由 400ms 放宽到 1s，减少磁盘 IO 与唤醒）。 */
+        const val PERSIST_INTERVAL_MS = 1_000L
+
+        /** 流式上屏间隔（3.1.0）：合并高频 token，避免整页重组与 Markdown 重复解析。 */
+        const val STREAM_PUBLISH_INTERVAL_MS = 50L
 
         /** ~24k characters ≈ 8-12k tokens, safe for most providers' context windows. */
         const val CONTEXT_CHAR_BUDGET = 24_000

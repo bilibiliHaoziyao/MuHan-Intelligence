@@ -231,7 +231,7 @@ private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel
             )
             Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
             Text(
-                text = "开始之前，先告诉我们你是哪种玩家",
+                text = "先问一句，你之前用过 AI 应用吗",
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -241,9 +241,9 @@ private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel
             PersonaCard(
                 title = "我是菜鸟",
                 description = if (compact) {
-                    "第一次用？选这个，内置已配好。"
+                    "内置模型已配好，装上就能聊。"
                 } else {
-                    "第一次用 AI 应用？选这个。\n内置的「慕寒智能」已帮你配好，打开就能聊；想用自己的模型也能在引导里一键添加。"
+                    "内置的「慕寒智能」已经配好，打开就能聊。\n想用自己的模型，也可以在下一步添加。"
                 },
                 selected = state.persona == com.muhan.intelligence.domain.model.Persona.ROOKIE,
                 emoji = "🐣",
@@ -253,9 +253,9 @@ private fun PersonaStep(state: OnboardingUiState, viewModel: OnboardingViewModel
             PersonaCard(
                 title = "我是迪克",
                 description = if (compact) {
-                    "折腾过 API？保留全部高级选项。"
+                    "自己有 API Key，想挑模型。"
                 } else {
-                    "折腾过 API、想要完全掌控？选这个。\n保留完整配置流程，额外提供协议选择、模型切换与深度思考 / 联网搜索等高级选项。"
+                    "完整配置流程，可以选协议、填地址和模型。"
                 },
                 selected = state.persona == com.muhan.intelligence.domain.model.Persona.GEEK,
                 emoji = "🛠️",
@@ -350,7 +350,7 @@ private fun ProviderStep(state: OnboardingUiState, viewModel: OnboardingViewMode
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.isRookie) {
-                    "慕寒智能已为你预配置、开箱即用；你也可以在这里添加自己的模型服务"
+                    "内置的慕寒智能已经配好，直接用。也可以在下面加自己的服务。"
                 } else {
                     "挑选一个常用服务商快速开始，或在下方选择自定义接入"
                 },
@@ -517,7 +517,7 @@ private fun BuiltInCard(selected: Boolean, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "开箱即用 · 已为你预配置好",
+                text = "已配好，直接用",
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
             )
@@ -611,9 +611,9 @@ private fun CredentialsStep(state: OnboardingUiState, viewModel: OnboardingViewM
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.isRookie) {
-                    "只差最后一步：把 API Key 粘贴到下面的框里。Key 只保存在你的手机上，请放心粘贴。"
+                    "把 API Key 粘进来。它只存在这台手机上。"
                 } else {
-                    "这些信息只保存在你的设备上，密钥会使用系统级加密存储"
+                    "只存在这台手机上，用系统加密保存。"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
@@ -638,7 +638,7 @@ private fun CredentialsStep(state: OnboardingUiState, viewModel: OnboardingViewM
                     value = state.baseUrl,
                     onValueChange = viewModel::onBaseUrlChange,
                     placeholder = "https://api.example.com/v1",
-                    helper = "填写到版本号即可，例如 https://api.deepseek.com",
+                    helper = "填到版本号，比如 https://api.deepseek.com",
                 )
                 Spacer(Modifier.height(14.dp))
 
@@ -901,9 +901,9 @@ private fun VerifyStep(
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.isRookie) {
-                    "点下面的「开始测试」，成功后就能直接开聊了"
+                    "测通了就能开始聊天。"
                 } else {
-                    "先确认配置可用，再开始对话"
+                    "先测一下能不能用"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
@@ -1186,7 +1186,7 @@ private fun DoneStep(onFinish: () -> Unit, viewModel: OnboardingViewModel) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "现在可以开始和慕寒智能对话了\n随时在「设置」中更换模型或调整参数",
+            text = "有问题随时去设置里改。",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

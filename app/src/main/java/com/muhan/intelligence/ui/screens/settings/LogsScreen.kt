@@ -72,7 +72,7 @@ fun LogsScreen(
         SettingsTopBar(
             title = "诊断日志",
             onBack = onBack,
-            subtitle = "INFO 及以上级别 · 崩溃记录 · 保存于内部存储 ${LogRepository.LOG_DIR_NAME}",
+            subtitle = "INFO 以上 · 崩溃记录 · 存在 ${LogRepository.LOG_DIR_NAME}",
         )
 
         if (files.isEmpty()) {
@@ -90,7 +90,7 @@ fun LogsScreen(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "暂无日志\n应用出现警告或崩溃时会自动记录到这里",
+                    text = "还没有日志\n出现警告或崩溃时会记在这里",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -165,7 +165,7 @@ fun LogsScreen(
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("清空全部日志？") },
-            text = { Text("所有历史日志（含崩溃记录）将被删除。") },
+            text = { Text("所有日志和崩溃记录都会清掉。") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.clearLogs()

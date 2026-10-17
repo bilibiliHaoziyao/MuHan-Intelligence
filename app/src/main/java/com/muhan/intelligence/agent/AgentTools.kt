@@ -50,13 +50,20 @@ interface AgentTool {
 @Singleton
 class AgentToolRegistry @Inject constructor(
     @ApplicationContext private val context: Context,
+    sharedClient: OkHttpClient,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
+    // 3.1.0：三个联网工具共用一份派生客户端，只覆盖较短超时。
+    private val httpClient: OkHttpClient = sharedClient.newBuilder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .build()
 
     private val tools: List<AgentTool> = listOf(
         TimeTool(),
         CalculatorTool(),
-        FetchUrlTool(),
+        FetchUrlTool(httpClient),
         SaveNoteTool(context),
         ReadNoteTool(context),
         ListNotesTool(context),
@@ -69,8 +76,8 @@ class AgentToolRegistry @Inject constructor(
         MakeDirTool(context),
         MoveFileTool(context),
         SearchFilesTool(context),
-        WeatherTool(),
-        HttpRequestTool(),
+        WeatherTool(httpClient),
+        HttpRequestTool(httpClient),
         ClipboardTool(context),
     )
 
@@ -225,11 +232,7 @@ private object Calculator {
 
 // ------------------------------------------------------------------ 网页读取
 
-private class FetchUrlTool : AgentTool {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+private class FetchUrlTool(private val client: OkHttpClient) : AgentTool {
 
     override val spec = ToolSpec(
         name = "fetch_url",
@@ -582,12 +585,8 @@ private class SearchFilesTool(private val context: Context) : AgentTool {
 
 // ------------------------------------------------------------------ 天气 / HTTP / 剪贴板
 
-private class WeatherTool : AgentTool {
+private class WeatherTool(private val client: OkHttpClient) : AgentTool {
     private val json = Json { ignoreUnknownKeys = true }
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
 
     override val spec = ToolSpec(
         name = "get_weather",
@@ -632,11 +631,7 @@ private class WeatherTool : AgentTool {
     }
 }
 
-private class HttpRequestTool : AgentTool {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
-        .build()
+private class HttpRequestTool(private val client: OkHttpClient) : AgentTool {
 
     override val spec = ToolSpec(
         name = "http_request",

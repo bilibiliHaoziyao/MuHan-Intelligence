@@ -81,7 +81,6 @@ class StartupViewModel @Inject constructor(
         val dynamicColor: Boolean = true,
         /** 服务端下发的版本信息（3.0.1，检查完成前为 null）。 */
         val update: com.muhan.intelligence.data.repository.AppUpdate? = null,
-        val updateChecked: Boolean = false,
     )
 
     private val _state = MutableStateFlow(StartState())
@@ -93,7 +92,7 @@ class StartupViewModel @Inject constructor(
             val update = kotlinx.coroutines.withTimeoutOrNull(2500) {
                 updateRepository.check()
             }
-            _state.update { it.copy(update = update, updateChecked = true) }
+            _state.update { it.copy(update = update) }
         }
 
         viewModelScope.launch {
@@ -228,8 +227,8 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
                             (context as? android.app.Activity)?.finish()
                         }
                     }
-                    // 版本检查尚未完成（最多等 2.5 秒），先显示品牌占位，避免闪主界面。
-                    !state.updateChecked -> StartupPlaceholder()
+                    // 3.1.0：不再阻塞等待版本检查——先让用户进入界面，检查完成后
+                    // 若需强制更新再覆盖，避免每次启动白等网络。
                     !state.loggedIn -> AuthScreen()
                     else -> {
                         val navController = rememberNavController()
@@ -251,13 +250,6 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun StartupPlaceholder() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        BrandMark(size = 64.dp)
     }
 }
 

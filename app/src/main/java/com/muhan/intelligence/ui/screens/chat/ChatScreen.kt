@@ -206,7 +206,7 @@ fun ChatScreen(
                 onStop = viewModel::stopGenerating,
                 isGenerating = state.isGenerating,
                 enabled = true,
-                hint = if (state.hasProvider) "给慕寒智能发送消息…" else "请先在设置中配置模型服务",
+                hint = if (state.hasProvider) "发消息…" else "还没配置模型服务",
                 imageMode = state.imageMode,
                 onToggleImageMode = viewModel::toggleImageMode,
                 imageModeAvailable = state.supportsImageGeneration,
@@ -418,21 +418,26 @@ private fun MessageList(
 
     val lastMessage = messages.lastOrNull()
     val lastIndex = messages.lastIndex
-    // 0.3.0：同时关注正文与思考过程的长度变化——深度思考阶段只有
-    // reasoningContent 在增长，若只盯 content 就不会跟随滚动。
+    // 3.1.0：流式期间内容每几十毫秒就变一次，逐帧启动滚动动画会不断重启动画、
+    // 造成抖动并持续耗电。改为 100ms 合并 + 瞬时定位，跟手且省电。
+    val lastScrollAt = remember { longArrayOf(0L) }
     LaunchedEffect(
         messages.size,
         lastMessage?.content?.length,
         lastMessage?.reasoningContent?.length,
     ) {
-        if (autoFollow && lastIndex >= 0) {
-            listState.animateScrollToItem(lastIndex)
-        }
+        if (!autoFollow || lastIndex < 0) return@LaunchedEffect
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastScrollAt[0] < 100) return@LaunchedEffect
+        lastScrollAt[0] = now
+        listState.scrollToItem(lastIndex)
     }
 
     // 0.5.1 崩溃保险：任何情况下都保证传给 LazyColumn 的 key 唯一。
     // 万一上游数据出现重复 id，distinctBy 去重而不是让 Compose 抛「key 已被使用」崩溃。
-    val distinctMessages = messages.distinctBy { it.id }
+    // 3.1.0：缓存去重结果——列表每次内容变化都要 O(n) 扫描，流式时等于每 50ms 一次。
+    val distinctMessages = remember(messages) { messages.distinctBy { it.id } }
+    val lastMessageId = distinctMessages.lastOrNull()?.id
 
     LazyColumn(
         state = listState,
@@ -440,10 +445,10 @@ private fun MessageList(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        items(items = distinctMessages, key = { it.id }) { message ->
+        items(items = distinctMessages, key = { it.id }, contentType = { it.role }) { message ->
             MessageBubble(
                 message = message,
-                isLastAssistant = message.id == distinctMessages.lastOrNull()?.id,
+                isLastAssistant = message.id == lastMessageId,
                 onCopy = { onCopy(message.content) },
                 onRetry = { onRetry(message.id) },
                 onEdit = { newText -> onEdit(message.id, newText) },
@@ -469,9 +474,9 @@ private fun EmptyChatState(
     val suggestions = remember {
         listOf(
             "用简单的比喻解释量子纠缠",
-            "帮我写一个 Python 快速排序",
-            "把这段话润色得更专业",
-            "制定一份四周健身计划",
+            "写个 Python 快速排序",
+            "润色一段文字",
+            "排一份四周健身计划",
         )
     }
 
@@ -492,9 +497,9 @@ private fun EmptyChatState(
         Spacer(Modifier.height(8.dp))
         Text(
             text = if (hasProvider) {
-                "随时向我提问，我会尽力给出清晰可靠的回答"
+                "有问题直接问。"
             } else {
-                "还没有配置模型服务，先完成设置即可开始对话"
+                "还没配置模型服务，先完成设置。"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
@@ -526,7 +531,7 @@ private fun EmptyChatState(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "前往配置模型服务",
+                    text = "去设置",
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.onPrimary,
                 )

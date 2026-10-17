@@ -98,12 +98,12 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Outlined.AccountCircle,
                     title = state.accountEmail ?: "未登录",
-                    subtitle = "已开启云同步 · 对话与设置随账号保存",
+                    subtitle = "已同步 · 对话和设置都在云端",
                 )
                 Divider()
                 SettingsRow(
                     icon = Icons.Outlined.Logout,
-                    title = if (state.isLoggingOut) "正在退出…" else "退出登录",
+                    title = if (state.isLoggingOut) "退出中…" else "退出登录",
                     subtitle = "清除本地缓存，云端数据保留",
                     titleColor = MaterialTheme.colorScheme.error,
                     onClick = { if (!state.isLoggingOut) confirmLogout = true },
@@ -145,7 +145,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Outlined.Add,
                     title = "添加 / 管理模型服务",
-                    subtitle = "${state.providers.size} 个已配置",
+                    subtitle = "已配置 ${state.providers.size} 个",
                     trailing = Icons.Outlined.ChevronRight,
                     onClick = onOpenProviders,
                 )
@@ -165,7 +165,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Outlined.Palette,
                     title = "动态取色",
-                    subtitle = "跟随系统壁纸配色（Android 12 及以上）",
+                    subtitle = "跟随壁纸取色（Android 12+）",
                     checked = state.preferences.dynamicColor,
                     onCheckedChange = viewModel::setDynamicColor,
                 )
@@ -180,7 +180,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Outlined.VolumeUp,
                     title = "语音播报",
-                    subtitle = "AI 回复完成后自动朗读，可随时在消息旁停止",
+                    subtitle = "回复完自动朗读，消息旁可以停",
                     checked = state.preferences.ttsEnabled,
                     onCheckedChange = viewModel::setTtsEnabled,
                 )
@@ -265,7 +265,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("清空全部对话？") },
-            text = { Text("所有对话记录将被永久删除，此操作无法撤销。模型服务配置不受影响。") },
+            text = { Text("对话会永久删除，没法恢复。模型服务配置还在。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -284,7 +284,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
             title = { Text("退出登录？") },
-            text = { Text("退出后会清除本机缓存，云端对话与设置仍然保留；下次登录会自动恢复。") },
+            text = { Text("退出会清掉本机缓存，云端内容保留，下次登录自动恢复。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -525,7 +525,7 @@ private fun ProviderRow(
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = if (provider.isBuiltIn) "内置 · 开箱即用" else provider.displayModelLabel,
+                text = if (provider.isBuiltIn) "内置，直接用" else provider.displayModelLabel,
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant,
             )

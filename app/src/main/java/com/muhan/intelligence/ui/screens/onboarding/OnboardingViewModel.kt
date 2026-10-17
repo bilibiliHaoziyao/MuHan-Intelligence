@@ -96,7 +96,7 @@ class OnboardingViewModel @Inject constructor(
         val next = when (current) {
             OnboardingStep.PERSONA ->
                 if (_state.value.persona == null) {
-                    _state.update { it.copy(errorMessage = "先选一个适合你的模式吧。") }
+                    _state.update { it.copy(errorMessage = "先选一个模式。") }
                     return
                 } else {
                     OnboardingStep.PROVIDER
@@ -107,7 +107,7 @@ class OnboardingViewModel @Inject constructor(
                     ProviderChoice.Preset ->
                         if (_state.value.selectedPreset == null) {
                             _state.update {
-                                it.copy(errorMessage = "请先选择一个模型服务，或选择「使用内置慕寒智能」。")
+                                it.copy(errorMessage = "选一个模型服务，或者直接用内置的慕寒智能。")
                             }
                             return
                         } else {
@@ -117,7 +117,7 @@ class OnboardingViewModel @Inject constructor(
                 }
             OnboardingStep.CREDENTIALS ->
                 if (!_state.value.credentialsValid) {
-                    _state.update { it.copy(errorMessage = "请完整填写接口地址、模型名称与 API Key。") }
+                    _state.update { it.copy(errorMessage = "接口地址、模型名称、API Key 都要填。") }
                     return
                 } else {
                     OnboardingStep.VERIFY
@@ -230,7 +230,7 @@ class OnboardingViewModel @Inject constructor(
     fun testConnection() {
         val current = _state.value
         if (!current.credentialsValid) {
-            _state.update { it.copy(errorMessage = "请先完整填写配置信息。") }
+            _state.update { it.copy(errorMessage = "配置还没填完。") }
             return
         }
 
@@ -314,7 +314,7 @@ class OnboardingViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isTesting = false,
-                            errorMessage = error.message ?: "保存失败，请检查配置后重试。",
+                            errorMessage = error.message ?: "没保存上，检查下配置。",
                         )
                     }
                 },

@@ -185,7 +185,7 @@ fun ChatInputBar(
                 ) {
                     if (value.isEmpty()) {
                         Text(
-                            text = if (imageMode) "描述你想要的画面…" else hint,
+                            text = if (imageMode) "描述画面…" else hint,
                             style = MaterialTheme.typography.bodyLarge,
                             color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
@@ -235,7 +235,7 @@ fun ChatInputBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "正在录音 ${recordingSeconds}s · 松开发送",
+                        text = "录音 ${recordingSeconds}s · 松开发送",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.error,
                     )
@@ -259,7 +259,7 @@ fun ChatInputBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (imageMode) "正在生成图片…" else "回复中，点击停止可中断生成",
+                        text = if (imageMode) "正在生成图片…" else "回复中，点停止可中断",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
                     )

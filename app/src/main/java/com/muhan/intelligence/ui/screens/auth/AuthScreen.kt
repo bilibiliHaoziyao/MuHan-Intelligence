@@ -85,9 +85,9 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.mode == AuthUiState.Mode.LOGIN) {
-                    "登录后同步你的对话、Agent 与设置"
+                    "登录后，对话和设置会同步到云端"
                 } else {
-                    "创建账号，开启云同步"
+                    "创建账号，多台设备共用一份对话"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
@@ -193,7 +193,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 if (state.codeSent) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "验证码已发送，10 分钟内有效；没收到请检查垃圾邮件。",
+                        text = "验证码已发送，10 分钟内有效。没收到可以看下垃圾邮件。",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth(),
@@ -231,7 +231,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 }
                 Text(
                     text = when {
-                        state.loading -> "请稍候…"
+                        state.loading -> "稍等…"
                         state.mode == AuthUiState.Mode.LOGIN -> "登录"
                         else -> "注册并登录"
                     },
@@ -258,7 +258,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
             Spacer(Modifier.height(12.dp))
 
             Text(
-                text = "登录即表示同意将对话与设置同步至云端。未满 18 岁请在监护人同意后使用。",
+                text = "登录即表示同意把对话和设置同步到云端。未满 18 岁需要监护人同意。",
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,

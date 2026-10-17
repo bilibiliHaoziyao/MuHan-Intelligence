@@ -27,22 +27,19 @@ import javax.inject.Singleton
 /**
  * Single entry point for talking to a user-configured LLM provider.
  *
- * A dedicated [OkHttpClient] is used (rather than a shared DI singleton) because
- * streaming completions need a read timeout measured in minutes while the
- * connection handshake should still fail fast.
+ * 3.1.0：复用全局共享的 [OkHttpClient]，只覆盖读超时（流式需要分钟级），
+ * 连接池与调度器与其它请求共用，减少常驻线程与重复建连。
  */
 @Singleton
 class ChatRemoteDataSource @Inject constructor(
     private val logRepository: com.muhan.intelligence.data.local.LogRepository,
+    sharedClient: OkHttpClient,
 ) {
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+    private val client: OkHttpClient = sharedClient.newBuilder()
         .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
         .build()
 
     /**

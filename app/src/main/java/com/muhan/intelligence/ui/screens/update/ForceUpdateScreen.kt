@@ -64,14 +64,14 @@ fun ForceUpdateScreen(
             Spacer(Modifier.height(22.dp))
 
             Text(
-                text = "需要更新后才能继续使用",
+                text = "更新后才能继续用",
                 style = MaterialTheme.typography.titleLarge,
                 color = scheme.onSurface,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "当前版本 ${update.currentName} 已不再支持，请更新到 ${update.minName} 或更高版本。",
+                text = "当前版本 ${update.currentName} 已经不能用了，更新到 ${update.minName} 或更高。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -121,7 +121,7 @@ fun ForceUpdateScreen(
             Spacer(Modifier.height(8.dp))
 
             Text(
-                text = "更新不会丢失你的对话与设置，安装后直接覆盖即可。",
+                text = "对话和设置不会丢，直接覆盖安装。",
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,

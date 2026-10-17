@@ -88,7 +88,7 @@ class SettingsViewModel @Inject constructor(
                 .onSuccess { q -> _state.update { it.copy(quota = q, quotaError = null) } }
                 .onFailure { e ->
                     _state.update {
-                        it.copy(quotaError = e.message ?: "无法获取云端额度")
+                        it.copy(quotaError = e.message ?: "拿不到云端额度")
                     }
                 }
         }
@@ -147,7 +147,7 @@ class SettingsViewModel @Inject constructor(
 
     fun clearLogs() {
         logRepository.clearLogs()
-        _state.update { it.copy(message = "已清空全部日志") }
+        _state.update { it.copy(message = "日志清空了") }
     }
 
     fun updateGeneration(settings: GenerationSettings) {
@@ -164,21 +164,21 @@ class SettingsViewModel @Inject constructor(
     fun activateProvider(id: String) {
         viewModelScope.launch {
             providerRepository.setActive(id)
-            _state.update { it.copy(message = "已切换当前使用的模型服务") }
+            _state.update { it.copy(message = "已切换") }
         }
     }
 
     fun deleteProvider(id: String) {
         viewModelScope.launch {
             providerRepository.deleteProvider(id)
-            _state.update { it.copy(message = "已删除模型服务") }
+            _state.update { it.copy(message = "已删除") }
         }
     }
 
     fun clearAllConversations() {
         viewModelScope.launch {
             conversationRepository.deleteAllConversations()
-            _state.update { it.copy(message = "已清空全部对话记录") }
+            _state.update { it.copy(message = "对话清空了") }
         }
     }
 
@@ -188,7 +188,7 @@ class SettingsViewModel @Inject constructor(
     fun restartOnboarding() {
         viewModelScope.launch {
             settingsRepository.resetOnboarding()
-            _state.update { it.copy(message = "已重置引导，返回首页重新进入") }
+            _state.update { it.copy(message = "引导已重置") }
         }
     }
 }
@@ -249,7 +249,7 @@ class ProviderEditorViewModel @Inject constructor(
                 val existing = providerRepository.observeProviders().first()
                     .firstOrNull { it.id == providerId }
                 if (existing == null) {
-                    _state.update { it.copy(isLoading = false, error = "未找到该模型服务。") }
+                    _state.update { it.copy(isLoading = false, error = "找不到这个服务。") }
                 } else {
                     _state.update {
                         it.copy(
@@ -298,7 +298,7 @@ class ProviderEditorViewModel @Inject constructor(
     fun testConnection() {
         val current = _state.value
         if (current.baseUrl.isBlank() || current.modelName.isBlank()) {
-            _state.update { it.copy(error = "请先填写接口地址与模型名称。") }
+            _state.update { it.copy(error = "接口地址和模型名称还没填。") }
             return
         }
 
@@ -306,7 +306,7 @@ class ProviderEditorViewModel @Inject constructor(
             providerId?.let { providerRepository.getApiKey(it) }.orEmpty()
         }
         if (key.isBlank()) {
-            _state.update { it.copy(error = "请先填写 API Key。") }
+            _state.update { it.copy(error = "API Key 还没填。") }
             return
         }
 
@@ -335,7 +335,7 @@ class ProviderEditorViewModel @Inject constructor(
     fun save() {
         val current = _state.value
         if (!current.canSave) {
-            _state.update { it.copy(error = "请完整填写必要信息。") }
+            _state.update { it.copy(error = "还有必填项没填。") }
             return
         }
 
@@ -360,7 +360,7 @@ class ProviderEditorViewModel @Inject constructor(
             }.fold(
                 onSuccess = { _state.update { it.copy(isSaving = false, saved = true) } },
                 onFailure = { e ->
-                    _state.update { it.copy(isSaving = false, error = e.message ?: "保存失败") }
+                    _state.update { it.copy(isSaving = false, error = e.message ?: "没保存上") }
                 },
             )
         }

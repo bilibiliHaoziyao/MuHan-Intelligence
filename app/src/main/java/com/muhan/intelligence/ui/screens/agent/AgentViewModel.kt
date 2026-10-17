@@ -1,5 +1,6 @@
 package com.muhan.intelligence.ui.screens.agent
 
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -175,7 +176,7 @@ class AgentViewModel @Inject constructor(
         viewModelScope.launch {
             val imported = uris.mapNotNull { attachmentStore.import(it) }
             if (imported.isEmpty()) {
-                _uiState.update { it.copy(errorBanner = "无法读取所选文件，请重试。") }
+                _uiState.update { it.copy(errorBanner = "这个文件读不了，换一个试试。") }
                 return@launch
             }
             _uiState.update { it.copy(pendingAttachments = it.pendingAttachments + imported) }
@@ -213,7 +214,7 @@ class AgentViewModel @Inject constructor(
         val text = state.input.trim()
         if (text.isEmpty() && state.pendingAttachments.isEmpty()) return
         if (state.activeProvider == null) {
-            _uiState.update { it.copy(errorBanner = "尚未配置模型服务，请先在设置中添加。") }
+            _uiState.update { it.copy(errorBanner = "还没有模型服务，先去设置里加一个。") }
             return
         }
 
@@ -224,12 +225,12 @@ class AgentViewModel @Inject constructor(
             if (provider.isBuiltIn) {
                 val quota = runCatching { quotaRepository.current() }.getOrElse { e ->
                     _uiState.update {
-                        it.copy(errorBanner = "无法获取云端额度：${e.message ?: "请检查网络"}")
+                        it.copy(errorBanner = "拿不到云端额度：${e.message ?: "检查下网络"}")
                     }
                     return@launch
                 }
                 if (quota.isExhausted) {
-                    _uiState.update { it.copy(errorBanner = "本月 10 万 token 额度已用尽，将于每月 1 日恢复") }
+                    _uiState.update { it.copy(errorBanner = "本月额度用完了，每月 1 日恢复") }
                     return@launch
                 }
             }
@@ -349,6 +350,8 @@ class AgentViewModel @Inject constructor(
                 for (round in 0 until MAX_ROUNDS) {
                     val contentBuf = StringBuilder()
                     val calls = LinkedHashMap<Int, ToolCallAcc>()
+                    // 3.1.0：流式节流，避免每个 token 触发整页重组。
+                    var lastPublish = 0L
 
                     chatRemoteDataSource.streamChat(
                         provider = provider,
@@ -364,11 +367,19 @@ class AgentViewModel @Inject constructor(
                         when (event) {
                             is StreamEvent.ContentDelta -> {
                                 contentBuf.append(event.text)
-                                _uiState.update { it.copy(liveContent = contentBuf.toString()) }
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastPublish >= STREAM_PUBLISH_INTERVAL_MS) {
+                                    lastPublish = now
+                                    _uiState.update { it.copy(liveContent = contentBuf.toString()) }
+                                }
                             }
                             is StreamEvent.ReasoningDelta -> {
                                 allReasoning.append(event.text)
-                                _uiState.update { it.copy(liveReasoning = allReasoning.toString()) }
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastPublish >= STREAM_PUBLISH_INTERVAL_MS) {
+                                    lastPublish = now
+                                    _uiState.update { it.copy(liveReasoning = allReasoning.toString()) }
+                                }
                             }
                             is StreamEvent.ToolCallDelta -> {
                                 val acc = calls.getOrPut(event.index) { ToolCallAcc() }
@@ -381,6 +392,11 @@ class AgentViewModel @Inject constructor(
                             is StreamEvent.Failed -> failure = event.message
                             else -> Unit
                         }
+                    }
+
+                    // 补发最后一帧，避免节流吞掉尾段。
+                    if (contentBuf.isNotEmpty()) {
+                        _uiState.update { it.copy(liveContent = contentBuf.toString()) }
                     }
 
                     if (failure != null) break
@@ -430,7 +446,7 @@ class AgentViewModel @Inject constructor(
                 }
 
                 val content = finalText.ifBlank {
-                    if (finishedNaturally) "" else "已完成 $MAX_ROUNDS 步工具调用，任务可能尚未完成，可继续追问。"
+                    if (finishedNaturally) "" else "已经走了 $MAX_ROUNDS 步，还没做完，可以继续追问。"
                 }
 
                 persistAssistant(
@@ -447,7 +463,7 @@ class AgentViewModel @Inject constructor(
                 if (provider.isBuiltIn && totalTokens > 0) {
                     runCatching { quotaRepository.consume(totalTokens) }
                 }
-                failure?.let { _uiState.update { s -> s.copy(errorBanner = "Agent 执行中断：$it") } }
+                failure?.let { _uiState.update { s -> s.copy(errorBanner = "执行中断了：$it") } }
             } catch (ce: CancellationException) {
                 // 用户停止：保留已产生的部分内容。
                 val partial = _uiState.value.liveContent
@@ -466,7 +482,7 @@ class AgentViewModel @Inject constructor(
                 throw ce
             } catch (t: Throwable) {
                 logRepository.warn("Agent", "执行异常：${t.message}", t)
-                _uiState.update { it.copy(errorBanner = t.message ?: "Agent 执行失败") }
+                _uiState.update { it.copy(errorBanner = t.message ?: "执行失败") }
             } finally {
                 _uiState.update {
                     it.copy(
@@ -519,7 +535,7 @@ class AgentViewModel @Inject constructor(
     fun startRecording() {
         if (_uiState.value.isRecording) return
         if (!audioRecorder.start()) {
-            _uiState.update { it.copy(voiceHint = "无法启动录音，请检查麦克风权限") }
+            _uiState.update { it.copy(voiceHint = "打不开麦克风，检查一下权限") }
             return
         }
         _uiState.update { it.copy(isRecording = true, recordingSeconds = 0, voiceHint = null) }
@@ -539,7 +555,7 @@ class AgentViewModel @Inject constructor(
         _uiState.update { it.copy(isRecording = false) }
         val wav = audioRecorder.stop()
         if (wav == null) {
-            _uiState.update { it.copy(voiceHint = "录音太短，请重试") }
+            _uiState.update { it.copy(voiceHint = "太短了，再说一次") }
             return
         }
         _uiState.update { it.copy(voiceHint = "正在识别…") }
@@ -549,7 +565,7 @@ class AgentViewModel @Inject constructor(
                     onSuccess = { text ->
                         val trimmed = text.trim()
                         if (trimmed.isEmpty()) {
-                            _uiState.update { it.copy(voiceHint = "没有听清，请重试") }
+                            _uiState.update { it.copy(voiceHint = "没听清，再说一次") }
                         } else {
                             val current = _uiState.value.input
                             onInputChange(if (current.isBlank()) trimmed else "$current$trimmed")
@@ -557,7 +573,7 @@ class AgentViewModel @Inject constructor(
                         }
                     },
                     onFailure = { e ->
-                        _uiState.update { it.copy(voiceHint = e.message ?: "识别失败，请重试") }
+                        _uiState.update { it.copy(voiceHint = e.message ?: "识别失败，再试一次") }
                     },
                 )
         }
@@ -588,7 +604,7 @@ class AgentViewModel @Inject constructor(
             _uiState.update { it.copy(speakingMessageId = messageId) }
             val wav = runCatching { audioRemoteDataSource.synthesize(text, ttsVoice) }
                 .getOrElse { e ->
-                    _uiState.update { it.copy(speakingMessageId = null, errorBanner = e.message ?: "语音合成失败") }
+                    _uiState.update { it.copy(speakingMessageId = null, errorBanner = e.message ?: "朗读失败") }
                     return@launch
                 }
             audioPlayer.play(wav) {
@@ -631,5 +647,8 @@ class AgentViewModel @Inject constructor(
 
     private companion object {
         const val MAX_ROUNDS = 8
+
+        /** 3.1.0：流式上屏间隔，合并高频 token。 */
+        const val STREAM_PUBLISH_INTERVAL_MS = 60L
     }
 }

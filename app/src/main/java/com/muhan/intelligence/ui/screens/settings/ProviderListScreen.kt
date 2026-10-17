@@ -66,7 +66,7 @@ fun ProviderListScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        SettingsTopBar(title = "模型服务", onBack = onBack, subtitle = "点击可设为当前使用")
+        SettingsTopBar(title = "模型服务", onBack = onBack, subtitle = "点一下设为当前使用")
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -126,7 +126,7 @@ fun ProviderListScreen(
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("删除模型服务") },
-            text = { Text("将删除「${target.displayName}」及其保存的 API Key。此操作无法撤销。") },
+            text = { Text("「${target.displayName}」和它的 API Key 都会删掉，没法恢复。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -225,7 +225,7 @@ private fun ProviderCard(
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = if (builtIn) "内置 · 开箱即用" else provider.modelName,
+                    text = if (builtIn) "内置，直接用" else provider.modelName,
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                 )
@@ -333,8 +333,7 @@ private fun SecurityNotice() {
         )
         Spacer(Modifier.width(11.dp))
         Text(
-            text = "API Key 使用 Android 系统级加密（Keystore）保存在本机，" +
-                "不会上传到任何服务器，也不会被备份到云端。",
+            text = "API Key 用系统 Keystore 加密存在本机，不上传，也不同步到云端。",
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurfaceVariant,
         )

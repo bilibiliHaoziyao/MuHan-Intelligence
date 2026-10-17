@@ -211,7 +211,7 @@ fun AgentScreen(
                 onStop = viewModel::stop,
                 isGenerating = state.isRunning,
                 enabled = true,
-                hint = if (state.hasProvider) "告诉 Agent 你想完成什么…" else "请先在设置中配置模型服务",
+                hint = if (state.hasProvider) "想让 Agent 做什么？" else "还没配置模型服务",
                 onMicPress = {
                     if (micGranted) viewModel.startRecording()
                     else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -341,9 +341,16 @@ private fun AgentMessageList(
 ) {
     val listState = rememberLazyListState()
     val lastIndex = messages.size
+    // 3.1.0：同一个列表内容只在变化时才去重；滚动改为 100ms 合并 + 瞬时定位。
+    val distinctMessages = remember(messages) { messages.distinctBy { it.id } }
+    val lastScrollAt = remember { longArrayOf(0L) }
     LaunchedEffect(messages.size, liveContent.length, liveReasoning.length, liveSteps.size) {
         val target = if (isRunning) lastIndex else messages.lastIndex
-        if (target >= 0) listState.animateScrollToItem(target)
+        if (target < 0) return@LaunchedEffect
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastScrollAt[0] < 100) return@LaunchedEffect
+        lastScrollAt[0] = now
+        listState.scrollToItem(target)
     }
 
     LazyColumn(
@@ -352,7 +359,7 @@ private fun AgentMessageList(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        items(items = messages.distinctBy { it.id }, key = { it.id }) { message ->
+        items(items = distinctMessages, key = { it.id }, contentType = { it.role }) { message ->
             AgentMessageBubble(
                 message = message,
                 isSpeaking = message.id == speakingMessageId,
@@ -498,12 +505,13 @@ private fun AgentMessageBubble(
 @Composable
 private fun AgentLiveBubble(content: String, reasoning: String, steps: List<AgentStep>) {
     val scheme = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().animateContentSize()) {
+    // 3.1.0：执行中的内容持续增长，不做布局动画（否则每帧重排）。
+    Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MuHanAvatar(size = 26.dp, animated = true)
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Agent 执行中",
+                text = "正在执行",
                 style = MaterialTheme.typography.labelMedium,
                 color = scheme.primary,
             )
@@ -568,7 +576,7 @@ private fun AgentStepsPanel(steps: List<AgentStep>, running: Boolean) {
             )
             Spacer(Modifier.width(7.dp))
             Text(
-                text = if (running) "工具调用 · ${steps.size} 步（执行中）" else "工具调用 · ${steps.size} 步",
+                text = if (running) "工具 · ${steps.size} 步（执行中）" else "工具 · ${steps.size} 步",
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.primary,
             )
@@ -647,10 +655,10 @@ private fun AgentEmptyState(onSuggestion: (String) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val suggestions = remember {
         listOf(
-            "搜索今天的科技新闻并总结",
-            "把这段会议记录整理成待办清单",
-            "查一下北京明天的天气",
-            "帮我算一下 12800 的 15% 是多少",
+            "搜下今天的科技新闻",
+            "把会议记录整理成待办",
+            "北京明天天气",
+            "算下 12800 的 15%",
         )
     }
     Column(
@@ -669,7 +677,7 @@ private fun AgentEmptyState(onSuggestion: (String) -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "我会自主调用工具（联网搜索、网页读取、计算、笔记）完成任务",
+            text = "可以调用联网搜索、网页读取、计算和笔记。",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

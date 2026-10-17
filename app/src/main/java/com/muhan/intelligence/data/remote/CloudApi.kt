@@ -32,12 +32,10 @@ class ApiException(val code: Int, message: String) : IOException(message)
 class CloudApi @Inject constructor(
     private val session: SessionManager,
     private val logRepository: LogRepository,
+    sharedClient: OkHttpClient,
 ) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
+    // 3.1.0：与其他请求共用连接池与调度器。
+    private val client: OkHttpClient = sharedClient
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
     private val json = Json { ignoreUnknownKeys = true }

@@ -108,7 +108,7 @@ class ProviderRepository @Inject constructor(
     suspend fun testConnection(config: ProviderConfig, apiKeyOverride: String? = null): ConnectionTestResult {
         val key = apiKeyOverride?.takeIf { it.isNotBlank() }
             ?: secureKeyStore.getApiKey(config.id)
-            ?: return ConnectionTestResult.Failure("请先填写 API Key。")
+            ?: return ConnectionTestResult.Failure("API Key 还没填。")
 
         return remote.testConnection(config, key)
     }

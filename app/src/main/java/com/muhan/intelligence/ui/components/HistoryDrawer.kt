@@ -94,7 +94,7 @@ fun HistoryDrawerContent(
                         color = scheme.onSurface,
                     )
                     Text(
-                        text = "共 ${conversations.size} 个对话",
+                        text = "${conversations.size} 个对话",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
                     )
@@ -135,7 +135,7 @@ fun HistoryDrawerContent(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "开启新对话",
+                    text = "新对话",
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.onPrimary,
                 )
@@ -296,7 +296,7 @@ fun HistoryDrawerContent(
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("删除对话") },
-            text = { Text("「${target.title}」及其全部消息将被永久删除，此操作无法撤销。") },
+            text = { Text("「${target.title}」和里面的消息都会删掉，没法恢复。") },
             confirmButton = {
                 TextButton(
                     onClick = {

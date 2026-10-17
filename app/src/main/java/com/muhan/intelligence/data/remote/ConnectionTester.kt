@@ -23,9 +23,12 @@ import javax.inject.Singleton
  * spinner, whereas real completions are allowed to run long.
  */
 @Singleton
-class ConnectionTester @Inject constructor() {
+class ConnectionTester @Inject constructor(
+    sharedClient: OkHttpClient,
+) {
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    // 3.1.0：基于共享客户端派生，仅缩短超时（连接测试要求快速失败）。
+    private val client: OkHttpClient = sharedClient.newBuilder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
@@ -39,7 +42,7 @@ class ConnectionTester @Inject constructor() {
         apiKey: String,
     ): ConnectionTestResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
-            return@withContext ConnectionTestResult.Failure("请先填写 API Key。")
+            return@withContext ConnectionTestResult.Failure("API Key 还没填。")
         }
         if (!config.baseUrl.startsWith("http://") && !config.baseUrl.startsWith("https://")) {
             return@withContext ConnectionTestResult.Failure("接口地址必须以 http:// 或 https:// 开头。")
@@ -54,7 +57,7 @@ class ConnectionTester @Inject constructor() {
             // Warn about plaintext to a public host — users pasting a LAN address
             // are fine, but sending a key in the clear to the internet is not.
             return@withContext ConnectionTestResult.Failure(
-                "出于安全考虑，公网接口请使用 https。若为本地部署（如 Ollama）请确认地址正确。",
+                "公网接口要用 https；本地部署（比如 Ollama）确认下地址。",
             )
         }
 

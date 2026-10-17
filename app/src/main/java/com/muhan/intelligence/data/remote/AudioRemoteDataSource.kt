@@ -35,12 +35,13 @@ import javax.inject.Singleton
 @Singleton
 class AudioRemoteDataSource @Inject constructor(
     private val logRepository: LogRepository,
+    sharedClient: OkHttpClient,
 ) {
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
+    // 3.1.0：基于共享客户端派生，语音合成/识别耗时较长，单独放宽读超时。
+    private val client: OkHttpClient = sharedClient.newBuilder()
         .writeTimeout(60, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()

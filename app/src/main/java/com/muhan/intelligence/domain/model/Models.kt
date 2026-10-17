@@ -1,5 +1,6 @@
 package com.muhan.intelligence.domain.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -50,6 +51,7 @@ enum class AttachmentKind { IMAGE, FILE }
  * the model as base64 data URLs; text files are inlined into the prompt.
  */
 @Serializable
+@Immutable
 data class MessageAttachment(
     val id: String,
     val name: String,
@@ -65,6 +67,7 @@ data class MessageAttachment(
  * Agent 执行步骤（3.0.0）：一次工具调用的记录，随消息一起持久化并展示。
  */
 @Serializable
+@Immutable
 data class AgentStep(
     /** 工具名，如 get_time / calculate / fetch_url / save_note。 */
     val name: String,
@@ -87,6 +90,7 @@ const val MODE_AGENT = "agent"
  * [imageUrl] carries a locally generated image (image-model replies) or a remote
  * URL returned by the provider.
  */
+@Immutable
 data class ChatMessage(
     val id: String,
     val conversationId: String,
@@ -111,6 +115,7 @@ data class ChatMessage(
 }
 
 /** A conversation thread shown in the history drawer. */
+@Immutable
 data class Conversation(
     val id: String,
     val title: String,

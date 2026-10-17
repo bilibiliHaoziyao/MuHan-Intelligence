@@ -107,7 +107,7 @@ fun ProviderEditorScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "该服务由应用预置、开箱即用，不支持编辑或删除。",
+                    text = "这是应用自带的，不能编辑或删除。",
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -195,7 +195,7 @@ fun ProviderEditorScreen(
                 value = state.baseUrl,
                 onValueChange = viewModel::onBaseUrlChange,
                 placeholder = "https://api.deepseek.com",
-                helper = "可填写到域名或 /v1，应用会自动补全请求路径",
+                helper = "填域名或 /v1 都行，路径会自动补全",
             )
             Spacer(Modifier.height(14.dp))
 
@@ -212,7 +212,7 @@ fun ProviderEditorScreen(
                 value = state.imageModel,
                 onValueChange = viewModel::onImageModelChange,
                 placeholder = "例如：dall-e-3、gemini-2.0-flash-exp",
-                helper = "填写后可在聊天中开启生图模式",
+                helper = "填了才能在聊天里生图",
             )
             Spacer(Modifier.height(14.dp))
 
@@ -268,7 +268,7 @@ fun ProviderEditorScreen(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = "密钥将使用系统级加密保存于本机，不会上传，也不会参与云备份。",
+                    text = "密钥用系统加密存在本机，不上传，不备份。",
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                 )
@@ -366,7 +366,7 @@ fun ProviderEditorScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("删除该模型服务？") },
-            text = { Text("对应的 API Key 也会一并删除，此操作无法撤销。") },
+            text = { Text("API Key 也会一起删掉，没法恢复。") },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = false; viewModel.deleteProvider() }) {
                     Text("删除", color = scheme.error)

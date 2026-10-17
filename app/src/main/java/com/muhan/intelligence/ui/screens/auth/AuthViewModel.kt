@@ -60,7 +60,7 @@ class AuthViewModel @Inject constructor(
         if (s.sendingCode || s.codeCooldown > 0) return
         val email = s.email.trim()
         if (!email.contains("@") || !email.contains(".")) {
-            _state.update { it.copy(error = "请先填写正确的邮箱") }
+            _state.update { it.copy(error = "邮箱填得不对") }
             return
         }
 
@@ -68,7 +68,7 @@ class AuthViewModel @Inject constructor(
             _state.update { it.copy(sendingCode = true, error = null) }
             runCatching { authRepository.sendCode(email) }
                 .onFailure { e ->
-                    val raw = e.message ?: "验证码发送失败"
+                    val raw = e.message ?: "验证码没发出去"
                     // 服务端 429 会给出「请 N 秒后再试」，把秒数直接转成倒计时。
                     val wait = Regex("""(\d+)\s*秒""").find(raw)?.groupValues?.get(1)?.toIntOrNull()
                     _state.update { it.copy(sendingCode = false, error = raw) }
@@ -101,7 +101,7 @@ class AuthViewModel @Inject constructor(
         if (s.loading) return
         val email = s.email.trim()
         if (!email.contains("@") || !email.contains(".")) {
-            _state.update { it.copy(error = "请输入正确的邮箱") }
+            _state.update { it.copy(error = "邮箱格式不对") }
             return
         }
         if (s.password.length < 8) {
@@ -109,7 +109,7 @@ class AuthViewModel @Inject constructor(
             return
         }
         if (s.mode == AuthUiState.Mode.REGISTER && s.code.length != 6) {
-            _state.update { it.copy(error = "请输入 6 位邮箱验证码") }
+            _state.update { it.copy(error = "验证码是 6 位数字") }
             return
         }
 
@@ -123,7 +123,7 @@ class AuthViewModel @Inject constructor(
                 }
             }.onFailure { e ->
                 _state.update {
-                    it.copy(loading = false, error = e.message ?: "操作失败，请重试")
+                    it.copy(loading = false, error = e.message ?: "没成功，再试一次")
                 }
             }.onSuccess {
                 _state.update { it.copy(loading = false) }

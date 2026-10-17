@@ -275,7 +275,9 @@ private fun AssistantMessageBubble(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            // 3.1.0：流式时内容每帧增长，布局动画等于持续重排，明显拖慢滚动；
+            // 只在非流式（历史消息、最终态）启用。
+            .then(if (isStreaming) Modifier else Modifier.animateContentSize()),
     ) {
         // Brand row: small avatar + model name, so users can tell local vs cloud.
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -522,7 +524,7 @@ fun ReasoningPanel(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (streaming) "正在思考…" else "深度思考过程",
+                text = if (streaming) "正在思考…" else "思考过程",
                 style = MaterialTheme.typography.labelMedium,
                 color = scheme.primary,
             )
