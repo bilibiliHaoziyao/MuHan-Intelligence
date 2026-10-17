@@ -47,10 +47,15 @@ class CloudApi @Inject constructor(
 
     // ------------------------------------------------------------------ 认证
 
-    suspend fun register(email: String, password: String) {
+    suspend fun sendCode(email: String) {
+        raw("POST", "/auth/send-code", jsonObject("email" to email), token = null)
+    }
+
+    suspend fun register(email: String, password: String, code: String) {
         val body = jsonObject(
             "email" to email,
             "password" to password,
+            "code" to code,
         )
         val res = raw("POST", "/auth/register", body, token = null)
         saveAuth(res)
@@ -76,6 +81,9 @@ class CloudApi @Inject constructor(
     }
 
     suspend fun me(): JsonObject = authorized("/auth/me")
+
+    /** 检查更新（公开接口，启动时无需登录即可调用）。 */
+    suspend fun appVersion(): JsonObject = raw("GET", "/app/version", null, token = null)
 
     // ------------------------------------------------------------------ 通用请求
 

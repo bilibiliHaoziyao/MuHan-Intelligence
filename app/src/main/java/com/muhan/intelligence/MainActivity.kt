@@ -10,10 +10,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -27,9 +36,11 @@ import com.muhan.intelligence.data.repository.AuthRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
 import com.muhan.intelligence.data.repository.SettingsRepository
 import com.muhan.intelligence.domain.model.ThemeMode
+import com.muhan.intelligence.ui.components.BrandMark
 import com.muhan.intelligence.ui.navigation.MuHanNavHost
 import com.muhan.intelligence.ui.navigation.Routes
 import com.muhan.intelligence.ui.screens.auth.AuthScreen
+import com.muhan.intelligence.ui.screens.update.ForceUpdateScreen
 import com.muhan.intelligence.ui.theme.MuHanTheme
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -58,6 +69,7 @@ class StartupViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val providerRepository: ProviderRepository,
     private val authRepository: AuthRepository,
+    private val updateRepository: com.muhan.intelligence.data.repository.UpdateRepository,
 ) : ViewModel() {
 
     data class StartState(
@@ -67,12 +79,23 @@ class StartupViewModel @Inject constructor(
         val loggedIn: Boolean = false,
         val themeMode: ThemeMode = ThemeMode.SYSTEM,
         val dynamicColor: Boolean = true,
+        /** 服务端下发的版本信息（3.0.1，检查完成前为 null）。 */
+        val update: com.muhan.intelligence.data.repository.AppUpdate? = null,
+        val updateChecked: Boolean = false,
     )
 
     private val _state = MutableStateFlow(StartState())
     val state: StateFlow<StartState> = _state.asStateFlow()
 
     init {
+        // 3.0.1：每次冷启动检查更新（超时保护，离线用户不被卡住）。
+        viewModelScope.launch {
+            val update = kotlinx.coroutines.withTimeoutOrNull(2500) {
+                updateRepository.check()
+            }
+            _state.update { it.copy(update = update, updateChecked = true) }
+        }
+
         viewModelScope.launch {
             // 1.0.0：首次启动先种子化内置「慕寒智能」默认服务，确保 hasProvider 在 resolved
             // 之前已确定，从而跳过引导直接进聊天（避免新装用户误入引导页的时序竞态）。
@@ -182,6 +205,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var optionalUpdateDismissed by remember { mutableStateOf(false) }
 
     MuHanTheme(
         themeMode = state.themeMode,
@@ -195,20 +220,69 @@ private fun MuHanApp(viewModel: StartupViewModel = hiltViewModel()) {
             // Hold the first frame until the destination is known, otherwise a
             // configured user would flash the onboarding screen on every launch.
             if (state.resolved) {
-                if (!state.loggedIn) {
-                    // 3.1.0：强制登录，未登录不能进入主界面。
-                    AuthScreen()
-                } else {
-                    val navController = rememberNavController()
-                    // 首次使用向导：未完成引导即进入向导。
-                    val start = if (!state.onboardingCompleted) {
-                        Routes.ONBOARDING
-                    } else {
-                        Routes.CHAT_START
+                val update = state.update
+                when {
+                    // 3.0.1：低于最低支持版本 → 全屏强制更新（最高优先级，不可关闭）。
+                    update != null && update.isForced -> {
+                        ForceUpdateScreen(update = update) {
+                            (context as? android.app.Activity)?.finish()
+                        }
                     }
-                    MuHanNavHost(navController = navController, startDestination = start)
+                    // 版本检查尚未完成（最多等 2.5 秒），先显示品牌占位，避免闪主界面。
+                    !state.updateChecked -> StartupPlaceholder()
+                    !state.loggedIn -> AuthScreen()
+                    else -> {
+                        val navController = rememberNavController()
+                        val start = if (!state.onboardingCompleted) {
+                            Routes.ONBOARDING
+                        } else {
+                            Routes.CHAT_START
+                        }
+                        MuHanNavHost(navController = navController, startDestination = start)
+                    }
+                }
+
+                // 非强制更新：每次启动提示一次，可稍后。
+                if (update != null && !update.isForced && update.hasUpdate && !optionalUpdateDismissed) {
+                    OptionalUpdateDialog(
+                        update = update,
+                        onDismiss = { optionalUpdateDismissed = true },
+                    )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun StartupPlaceholder() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BrandMark(size = 64.dp)
+    }
+}
+
+@Composable
+private fun OptionalUpdateDialog(
+    update: com.muhan.intelligence.data.repository.AppUpdate,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("发现新版本 ${update.latestName}") },
+        text = {
+            Text("当前版本 ${update.currentName}。更新后可获得最新改进，且不会丢失对话与设置。")
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    com.muhan.intelligence.ui.screens.update.openUrl(context, update.downloadUrl)
+                    onDismiss()
+                },
+            ) { Text("立即更新") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("稍后") }
+        },
+    )
 }

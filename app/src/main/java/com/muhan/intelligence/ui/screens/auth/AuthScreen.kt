@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -141,6 +144,62 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (state.mode == AuthUiState.Mode.REGISTER) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = state.code,
+                        onValueChange = viewModel::onCodeChange,
+                        label = { Text("邮箱验证码") },
+                        placeholder = { Text("6 位数字") },
+                        singleLine = true,
+                        enabled = !state.loading,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done,
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedButton(
+                        onClick = viewModel::sendCode,
+                        enabled = !state.loading && !state.sendingCode && state.codeCooldown == 0,
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(56.dp),
+                    ) {
+                        when {
+                            state.sendingCode -> CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            state.codeCooldown > 0 -> Text(
+                                text = "${state.codeCooldown}s",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            state.codeSent -> Text(
+                                text = "重新发送",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            else -> Text(
+                                text = "发送验证码",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
+                if (state.codeSent) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "验证码已发送，10 分钟内有效；没收到请检查垃圾邮件。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
 
             if (state.error != null) {
                 Spacer(Modifier.height(10.dp))

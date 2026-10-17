@@ -79,3 +79,31 @@ CREATE TABLE IF NOT EXISTS user_settings (
   updated_at     INTEGER NOT NULL DEFAULT 0
 );
 
+-- 邮箱验证码（注册防机器人）
+CREATE TABLE IF NOT EXISTS email_codes (
+  id         TEXT PRIMARY KEY,
+  email      TEXT NOT NULL,
+  code_hash  TEXT NOT NULL,          -- 验证码的 SHA-256，不存明文
+  purpose    TEXT NOT NULL DEFAULT 'register',
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  consumed   INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_codes_email ON email_codes(email, created_at);
+CREATE INDEX IF NOT EXISTS idx_codes_created ON email_codes(created_at);
+
+-- 版本发布记录（检查更新）
+CREATE TABLE IF NOT EXISTS app_versions (
+  version_code INTEGER PRIMARY KEY,
+  version_name TEXT NOT NULL,
+  download_url TEXT NOT NULL,
+  released_at  INTEGER NOT NULL
+);
+
+-- 应用级配置（键值）
+CREATE TABLE IF NOT EXISTS app_config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+

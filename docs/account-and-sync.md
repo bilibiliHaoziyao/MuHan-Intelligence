@@ -72,13 +72,41 @@ Base URL：`https://api.<你的域名>`
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/auth/register` | `{email, password}` | `{user, accessToken, refreshToken, expiresIn}` |
+| POST | `/auth/send-code` | `{email}` | `{ok, expiresIn, resendAfter}` |
+| POST | `/auth/register` | `{email, password, code}` | `{user, accessToken, refreshToken, expiresIn}` |
 | POST | `/auth/login` | `{email, password}` | 同上 |
 | POST | `/auth/refresh` | `{refreshToken}` | 同上（刷新令牌轮换） |
 | POST | `/auth/logout` | `{refreshToken}` | `{ok: true}` |
 | GET | `/auth/me` | Header: Bearer | `{user}` |
 
 鉴权头：`Authorization: Bearer <accessToken>`。
+
+**注册验证码（3.0.1 起强制）**：防机器人批量注册。
+
+- 6 位数字，10 分钟有效，同一时刻只有最新一条有效。
+- 限流：同邮箱 60 秒一条、每小时 5 条、每天 10 条；校验失败 5 次作废。
+- 库里只存 `SHA-256(email:code:JWT_SECRET)`，不存明文。
+- 发信走腾讯企业邮 SMTP（`smtp.exmail.qq.com:465`，Workers 出站 TCP + 隐式 TLS）。
+
+### 4.4 版本与更新（3.0.1）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/app/version` | 无需鉴权，启动时调用 |
+
+响应：
+
+```json
+{
+  "latest": { "code": 23, "name": "3.0.1", "url": "https://.../MuHan-Intelligence-3.0.1-release.apk" },
+  "minSupported": { "code": 23, "name": "3.0.1", "url": "https://..." },
+  "serverTime": 1792230748232
+}
+```
+
+- 客户端 `versionCode < minSupported.code` → **强制更新**（全屏不可关闭）。
+- `versionCode < latest.code` → 可选更新（每次启动提示一次，可稍后）。
+- 门槛由 `app_config.min_supported_code` 控制，发版时更新即可，无需改客户端。
 
 ### 4.2 同步
 
@@ -192,6 +220,17 @@ openssl rand -hex 32
 
 wrangler secret put JWT_SECRET   # 粘贴上面的随机串
 ```
+
+邮件验证码另需 3 个 Secret（腾讯企业邮）：
+
+```bash
+wrangler secret put SMTP_USER    # 发信账号，如 noreply@novasync.cn
+wrangler secret put SMTP_PASS    # 「客户端专用密码」，不是登录密码
+wrangler secret put SMTP_FROM    # 发件地址，必须与 SMTP_USER 相同或有别名关系
+```
+
+> 腾讯企业邮后台：设置 → 客户端设置 → 开启 SMTP 服务 → 生成客户端专用密码。
+> 排障时可临时 `wrangler secret put SMTP_DEBUG`（值 `1`），发信失败会在响应里带上具体原因，**排查完请删除**。
 
 ### 6.4 部署并绑定域名
 

@@ -16,9 +16,19 @@
  *   POST /quota/consume    {tokens}
  */
 
+import { sendMail } from "./smtp";
+
 export interface Env {
   DB: D1Database;
   JWT_SECRET: string;
+  /** 腾讯企业邮 SMTP（smtp.exmail.qq.com:465）。 */
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_USER?: string;
+  SMTP_PASS?: string;
+  SMTP_FROM?: string;
+  /** 设为 "1" 时在发信失败响应里返回具体原因，仅用于部署排障。 */
+  SMTP_DEBUG?: string;
 }
 
 const ACCESS_TTL_SECONDS = 15 * 60;
@@ -172,6 +182,56 @@ async function issueTokens(env: Env, userId: string) {
   return { accessToken, refreshToken, expiresIn: ACCESS_TTL_SECONDS };
 }
 
+// ------------------------------------------------------------------ 邮箱验证码
+
+const CODE_TTL_MS = 10 * 60 * 1000; // 10 分钟有效
+const CODE_RESEND_MS = 60 * 1000; // 同邮箱 60 秒一条
+const CODE_HOURLY_LIMIT = 5; // 每小时最多 5 条
+const CODE_DAILY_LIMIT = 10; // 每天最多 10 条
+const CODE_MAX_ATTEMPTS = 5; // 校验失败 5 次作废
+
+function normalizeEmail(raw: unknown): string {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function isEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function codeHash(email: string, code: string, secret: string): Promise<string> {
+  // 绑定邮箱与密钥，避免库被读走后直接使用。
+  return sha256Hex(`${email}:${code}:${secret}`);
+}
+
+function verificationMail(code: string): string {
+  const digits = code.split("").join(" ");
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6fa;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(20,24,40,0.08);">
+        <tr><td style="padding:28px 32px 8px 32px;">
+          <div style="font-size:19px;font-weight:600;color:#151a2d;letter-spacing:0.2px;">MuHan Intelligence</div>
+          <div style="font-size:12px;color:#8a90a6;margin-top:4px;">听见你，更懂你</div>
+        </td></tr>
+        <tr><td style="padding:20px 32px 0 32px;">
+          <div style="font-size:15px;color:#2b3149;line-height:1.6;">你正在注册 MuHan Intelligence，本次验证码为：</div>
+        </td></tr>
+        <tr><td align="center" style="padding:22px 32px;">
+          <div style="display:inline-block;padding:16px 26px;background:#f1f3ff;border-radius:12px;font-size:30px;font-weight:700;letter-spacing:4px;color:#4b5bd6;font-family:'SF Mono',Menlo,Consolas,monospace;">${digits}</div>
+        </td></tr>
+        <tr><td style="padding:0 32px 8px 32px;">
+          <div style="font-size:13px;color:#6b7285;line-height:1.7;">验证码 10 分钟内有效，请勿转发给他人。<br>如果这不是你本人的操作，忽略此邮件即可。</div>
+        </td></tr>
+        <tr><td style="padding:22px 32px 26px 32px;border-top:1px solid #eef0f6;">
+          <div style="font-size:11px;color:#9aa0b4;line-height:1.6;">此邮件由系统自动发送，请勿直接回复。<br>MuHan Intelligence · 慕寒实验室</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
 // ------------------------------------------------------------------ 额度
 
 function currentPeriod(): string {
@@ -223,16 +283,162 @@ export default {
         return withCors(json({ ok: true, time: Date.now() }));
       }
 
+      // ---- 检查更新（无需登录，启动即调用）
+      if (path === "/app/version" && request.method === "GET") {
+        const latest = await env.DB.prepare(
+          "SELECT version_code, version_name, download_url, released_at FROM app_versions ORDER BY version_code DESC LIMIT 1",
+        ).first<any>();
+        if (!latest) throw new HttpError("暂未发布版本信息", 404);
+
+        const cfg = await env.DB.prepare(
+          "SELECT value FROM app_config WHERE key='min_supported_code'",
+        ).first<any>();
+        const minCode = Number(cfg?.value || latest.version_code);
+        const minRow = await env.DB.prepare(
+          "SELECT version_code, version_name, download_url FROM app_versions WHERE version_code=?",
+        )
+          .bind(minCode)
+          .first<any>();
+
+        return withCors(
+          json({
+            latest: {
+              code: latest.version_code,
+              name: latest.version_name,
+              url: latest.download_url,
+            },
+            minSupported: minRow
+              ? {
+                  code: minRow.version_code,
+                  name: minRow.version_name,
+                  url: minRow.download_url,
+                }
+              : {
+                  code: latest.version_code,
+                  name: latest.version_name,
+                  url: latest.download_url,
+                },
+            serverTime: Date.now(),
+          }),
+        );
+      }
+
+      // ---- 发送注册验证码
+      if (path === "/auth/send-code" && request.method === "POST") {
+        const body = await readJson(request);
+        const email = normalizeEmail(body.email);
+        if (!isEmail(email)) throw new HttpError("邮箱格式不正确");
+
+        const exists = await env.DB.prepare("SELECT id FROM users WHERE email=?")
+          .bind(email)
+          .first();
+        if (exists) throw new HttpError("该邮箱已注册，请直接登录", 409);
+
+        const now = Date.now();
+        const recent = await env.DB.prepare(
+          "SELECT created_at FROM email_codes WHERE email=? AND created_at > ? ORDER BY created_at DESC LIMIT 50",
+        )
+          .bind(email, now - 24 * 3600 * 1000)
+          .all<any>();
+        const rows = (recent.results || []) as Array<{ created_at: number }>;
+
+        if (rows.length && now - rows[0].created_at < CODE_RESEND_MS) {
+          const wait = Math.ceil((CODE_RESEND_MS - (now - rows[0].created_at)) / 1000);
+          throw new HttpError(`发送过于频繁，请 ${wait} 秒后再试`, 429);
+        }
+        const hourly = rows.filter((r) => now - r.created_at < 3600 * 1000).length;
+        if (hourly >= CODE_HOURLY_LIMIT) {
+          throw new HttpError("该邮箱验证码发送次数过多，请 1 小时后再试", 429);
+        }
+        if (rows.length >= CODE_DAILY_LIMIT) {
+          throw new HttpError("该邮箱今日发送次数已达上限，请明天再试", 429);
+        }
+
+        if (!env.SMTP_USER || !env.SMTP_PASS) {
+          throw new HttpError("邮件服务尚未配置，请联系管理员", 503);
+        }
+
+        const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+        const id = crypto.randomUUID();
+        const hash = await codeHash(email, code, env.JWT_SECRET);
+
+        // 旧码立即作废，保证同一时刻只有一个有效码。
+        await env.DB.prepare(
+          "UPDATE email_codes SET consumed=1 WHERE email=? AND purpose='register' AND consumed=0",
+        )
+          .bind(email)
+          .run();
+        await env.DB.prepare(
+          "INSERT INTO email_codes(id, email, code_hash, purpose, attempts, consumed, expires_at, created_at) VALUES (?,?,?,?,0,0,?,?)",
+        )
+          .bind(id, email, hash, "register", now + CODE_TTL_MS, now)
+          .run();
+
+        try {
+          await sendMail(
+            {
+              host: env.SMTP_HOST || "smtp.exmail.qq.com",
+              port: Number(env.SMTP_PORT || 465),
+              user: env.SMTP_USER,
+              pass: env.SMTP_PASS,
+              from: env.SMTP_FROM || env.SMTP_USER,
+              fromName: "MuHan Intelligence",
+            },
+            {
+              to: email,
+              subject: "MuHan Intelligence 注册验证码",
+              html: verificationMail(code),
+            },
+          );
+        } catch (e) {
+          // 发信失败则删除这条码，避免"码已存在但用户没收到"。
+          await env.DB.prepare("DELETE FROM email_codes WHERE id=?").bind(id).run();
+          console.error("send-code failed", e);
+          const detail =
+            env.SMTP_DEBUG === "1"
+              ? `：${e instanceof Error ? e.message : String(e)}`
+              : "";
+          throw new HttpError(`验证码邮件发送失败，请稍后重试${detail}`, 502);
+        }
+
+        return withCors(
+          json({ ok: true, expiresIn: CODE_TTL_MS / 1000, resendAfter: CODE_RESEND_MS / 1000 }),
+        );
+      }
+
       // ---- 注册
       if (path === "/auth/register" && request.method === "POST") {
         const body = await readJson(request);
-        const email = String(body.email || "").trim().toLowerCase();
+        const email = normalizeEmail(body.email);
         const password = String(body.password || "");
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError("邮箱格式不正确");
+        const code = String(body.code || "").trim();
+        if (!isEmail(email)) throw new HttpError("邮箱格式不正确");
         if (password.length < 8) throw new HttpError("密码至少 8 位");
+        if (!/^\d{6}$/.test(code)) throw new HttpError("请输入 6 位邮箱验证码");
 
         const exists = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
         if (exists) throw new HttpError("该邮箱已注册", 409);
+
+        // 校验验证码（防机器人批量注册）。
+        const record = await env.DB.prepare(
+          "SELECT id, code_hash, attempts, expires_at FROM email_codes WHERE email=? AND purpose='register' AND consumed=0 ORDER BY created_at DESC LIMIT 1",
+        )
+          .bind(email)
+          .first<any>();
+        if (!record) throw new HttpError("请先获取邮箱验证码", 400);
+        if (record.expires_at < Date.now()) throw new HttpError("验证码已过期，请重新获取", 400);
+        if (record.attempts >= CODE_MAX_ATTEMPTS) {
+          throw new HttpError("验证码错误次数过多，请重新获取", 429);
+        }
+
+        const expected = await codeHash(email, code, env.JWT_SECRET);
+        if (expected !== record.code_hash) {
+          await env.DB.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE id=?")
+            .bind(record.id)
+            .run();
+          throw new HttpError("验证码不正确", 400);
+        }
+        await env.DB.prepare("UPDATE email_codes SET consumed = 1 WHERE id=?").bind(record.id).run();
 
         const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
         const hash = await pbkdf2(password, salt);

@@ -30,10 +30,15 @@ class AuthRepository @Inject constructor(
         syncSettings()
     }
 
-    suspend fun register(email: String, password: String) {
-        api.register(normalize(email), password)
+    suspend fun register(email: String, password: String, code: String) {
+        api.register(normalize(email), password, code.trim())
         syncRepository.syncNow()
         syncSettings()
+    }
+
+    /** 发送注册邮箱验证码（3.0.1 起用于防机器人）。 */
+    suspend fun sendCode(email: String) {
+        api.sendCode(normalize(email))
     }
 
     private suspend fun syncSettings() {
