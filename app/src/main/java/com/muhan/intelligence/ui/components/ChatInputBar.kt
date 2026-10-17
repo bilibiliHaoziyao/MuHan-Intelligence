@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Stop
@@ -44,6 +46,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -73,6 +76,13 @@ fun ChatInputBar(
     imageMode: Boolean = false,
     onToggleImageMode: () -> Unit = {},
     imageModeAvailable: Boolean = false,
+    onMicPress: () -> Unit = {},
+    onMicRelease: () -> Unit = {},
+    onMicCancel: () -> Unit = {},
+    isRecording: Boolean = false,
+    recordingSeconds: Int = 0,
+    voiceHint: String? = null,
+    micEnabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
     val focusManager = LocalFocusManager.current
@@ -157,6 +167,16 @@ fun ChatInputBar(
 
                 Spacer(Modifier.width(6.dp))
 
+                MicButton(
+                    enabled = micEnabled,
+                    isRecording = isRecording,
+                    onPress = onMicPress,
+                    onRelease = onMicRelease,
+                    onCancel = onMicCancel,
+                )
+
+                Spacer(Modifier.width(6.dp))
+
                 SendOrStopButton(
                     isGenerating = isGenerating,
                     canSend = enabled && value.isNotBlank(),
@@ -167,6 +187,30 @@ fun ChatInputBar(
                     onStop = onStop,
                     imageMode = imageMode,
                 )
+            }
+
+            if (isRecording) {
+                Row(
+                    modifier = Modifier.padding(start = 8.dp, top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "正在录音 ${recordingSeconds}s · 松开发送",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.error,
+                    )
+                }
+            } else if (voiceHint != null) {
+                Row(
+                    modifier = Modifier.padding(start = 8.dp, top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = voiceHint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
             }
 
             AnimatedVisibility(visible = isGenerating, enter = fadeIn(), exit = fadeOut()) {
@@ -217,6 +261,50 @@ private fun CapabilityChip(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = fg,
+        )
+    }
+}
+
+@Composable
+private fun MicButton(
+    enabled: Boolean,
+    isRecording: Boolean,
+    onPress: () -> Unit,
+    onRelease: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(21.dp))
+            .background(
+                when {
+                    isRecording -> scheme.error.copy(alpha = 0.18f)
+                    else -> scheme.surfaceContainerHighest
+                },
+            )
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(
+                    onPress = {
+                        onPress()
+                        val released = tryAwaitRelease()
+                        if (released) onRelease() else onCancel()
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Mic,
+            contentDescription = if (isRecording) "松开发送" else "按住说话",
+            tint = when {
+                isRecording -> scheme.error
+                enabled -> scheme.onSurfaceVariant
+                else -> scheme.onSurfaceVariant.copy(alpha = 0.4f)
+            },
+            modifier = Modifier.size(20.dp),
         )
     }
 }

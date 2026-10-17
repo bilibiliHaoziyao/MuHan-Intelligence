@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -80,6 +81,8 @@ fun MessageBubble(
     onRetry: () -> Unit,
     onEdit: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onSpeak: (() -> Unit)? = null,
+    speakingMessageId: String? = null,
 ) {
     when (message.role) {
         Role.USER -> UserMessageBubble(
@@ -93,6 +96,8 @@ fun MessageBubble(
             isLastAssistant = isLastAssistant,
             onCopy = onCopy,
             onRetry = onRetry,
+            onSpeak = onSpeak,
+            isSpeaking = message.id == speakingMessageId,
             modifier = modifier,
         )
     }
@@ -258,11 +263,14 @@ private fun AssistantMessageBubble(
     onCopy: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    onSpeak: (() -> Unit)? = null,
+    isSpeaking: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
     val isStreaming = message.status == MessageStatus.STREAMING
     val isFailed = message.status == MessageStatus.FAILED
     val showEmptyThinking = isStreaming && message.content.isBlank() && !message.hasReasoning
+    val canSpeak = onSpeak != null && !isStreaming && !isFailed && message.content.isNotBlank()
 
     Column(
         modifier = modifier
@@ -285,6 +293,10 @@ private fun AssistantMessageBubble(
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.primary,
                 )
+            }
+            Spacer(Modifier.weight(1f))
+            if (canSpeak) {
+                SpeakButton(isSpeaking = isSpeaking, onClick = onSpeak!!)
             }
         }
 
@@ -376,6 +388,25 @@ private fun GeneratedImageViewer(source: String) {
                 .height(280.dp)
                 .padding(6.dp)
                 .clip(RoundedCornerShape(12.dp)),
+        )
+    }
+}
+
+@Composable
+private fun SpeakButton(isSpeaking: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickableNoIndication(onClick = onClick)
+            .padding(5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (isSpeaking) Icons.Outlined.Stop else Icons.Outlined.VolumeUp,
+            contentDescription = if (isSpeaking) "停止朗读" else "朗读",
+            tint = if (isSpeaking) scheme.error else scheme.onSurfaceVariant,
+            modifier = Modifier.size(17.dp),
         )
     }
 }

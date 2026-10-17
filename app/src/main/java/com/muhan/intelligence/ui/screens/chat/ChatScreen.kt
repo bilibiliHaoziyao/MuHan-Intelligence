@@ -1,5 +1,10 @@
 package com.muhan.intelligence.ui.screens.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +87,16 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    // 2.0.0 Beta：语音输入需要录音权限，按住麦克风时按需申请。
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) viewModel.startRecording() }
+
+    val micGranted = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.RECORD_AUDIO,
+    ) == PackageManager.PERMISSION_GRANTED
 
     var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -167,6 +183,8 @@ fun ChatScreen(
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
                         onRetry = viewModel::retryMessage,
                         onEdit = viewModel::editAndResend,
+                        onSpeak = viewModel::speakMessage,
+                        speakingMessageId = state.speakingMessageId,
                     )
                 }
             }
@@ -182,6 +200,19 @@ fun ChatScreen(
                 imageMode = state.imageMode,
                 onToggleImageMode = viewModel::toggleImageMode,
                 imageModeAvailable = state.supportsImageGeneration,
+                onMicPress = {
+                    if (micGranted) {
+                        viewModel.startRecording()
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onMicRelease = viewModel::stopRecordingAndTranscribe,
+                onMicCancel = viewModel::cancelRecording,
+                isRecording = state.isRecording,
+                recordingSeconds = state.recordingSeconds,
+                voiceHint = state.voiceHint,
+                micEnabled = state.hasProvider,
                 modifier = Modifier
                     .imePadding()
                     .navigationBarsPadding(),
@@ -357,6 +388,8 @@ private fun MessageList(
     onCopy: (String) -> Unit,
     onRetry: (String) -> Unit,
     onEdit: (String, String) -> Unit,
+    onSpeak: (String) -> Unit,
+    speakingMessageId: String?,
 ) {
     val listState = rememberLazyListState()
 
@@ -402,6 +435,8 @@ private fun MessageList(
                 onCopy = { onCopy(message.content) },
                 onRetry = { onRetry(message.id) },
                 onEdit = { newText -> onEdit(message.id, newText) },
+                onSpeak = { onSpeak(message.id) },
+                speakingMessageId = speakingMessageId,
             )
         }
 

@@ -192,9 +192,23 @@ data class AppPreferences(
     /** 用户体验改善计划（0.2.0 Fix2，目前仅 UI 开关）。 */
     val uxImprovement: Boolean = true,
 
+    /** 语音播报：AI 回复完成后自动转语音朗读（2.0.0 Beta，可在设置关闭）。 */
+    val ttsEnabled: Boolean = true,
+
+    /** 语音合成音色 id（MiMo-V2.5-TTS 预置音色，默认「冰糖」）。 */
+    val ttsVoice: String = DEFAULT_TTS_VOICE,
+
     /** 是否已尝试申请存储权限（0.3.0，避免每次启动重复弹窗）。 */
     val storagePermissionRequested: Boolean = false,
-)
+) {
+    companion object {
+        const val DEFAULT_TTS_VOICE = "冰糖"
+
+        /** MiMo-V2.5-TTS 预置音色（Voice ID 列表）。 */
+        val TTS_VOICES: List<String> =
+            listOf("冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean")
+    }
+}
 
 /** Streaming events emitted while a completion is in flight. */
 sealed interface StreamEvent {

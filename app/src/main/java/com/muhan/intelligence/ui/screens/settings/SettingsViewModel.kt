@@ -78,6 +78,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setUxImprovement(enabled) }
     }
 
+    fun setTtsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setTtsEnabled(enabled) }
+    }
+
+    fun setTtsVoice(voice: String) {
+        viewModelScope.launch { settingsRepository.setTtsVoice(voice) }
+    }
+
     // ------------------------------------------------------- 诊断日志 (0.2.0 Fix2)
 
     fun logFiles(): List<java.io.File> = logRepository.listLogFiles()

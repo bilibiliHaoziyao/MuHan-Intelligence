@@ -40,6 +40,8 @@ class PreferencesStore @Inject constructor(
         val reasoningEnabled = booleanPreferencesKey("reasoning_enabled")
         val webSearchEnabled = booleanPreferencesKey("web_search_enabled")
         val uxImprovement = booleanPreferencesKey("ux_improvement")
+        val ttsEnabled = booleanPreferencesKey("tts_enabled")
+        val ttsVoice = stringPreferencesKey("tts_voice")
         val storagePermissionRequested = booleanPreferencesKey("storage_permission_requested")
     }
 
@@ -62,6 +64,8 @@ class PreferencesStore @Inject constructor(
                 webSearchEnabled = prefs[Keys.webSearchEnabled] ?: false,
             ),
             uxImprovement = prefs[Keys.uxImprovement] ?: true,
+            ttsEnabled = prefs[Keys.ttsEnabled] ?: true,
+            ttsVoice = prefs[Keys.ttsVoice] ?: AppPreferences.DEFAULT_TTS_VOICE,
             storagePermissionRequested = prefs[Keys.storagePermissionRequested] ?: false,
         )
     }
@@ -80,6 +84,14 @@ class PreferencesStore @Inject constructor(
 
     suspend fun setUxImprovement(enabled: Boolean) {
         context.preferencesDataStore.edit { it[Keys.uxImprovement] = enabled }
+    }
+
+    suspend fun setTtsEnabled(enabled: Boolean) {
+        context.preferencesDataStore.edit { it[Keys.ttsEnabled] = enabled }
+    }
+
+    suspend fun setTtsVoice(voice: String) {
+        context.preferencesDataStore.edit { it[Keys.ttsVoice] = voice }
     }
 
     suspend fun setStoragePermissionRequested(requested: Boolean) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muhan.intelligence.domain.model.ProviderConfig
+import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ThemeMode
 import com.muhan.intelligence.domain.model.isBuiltIn
 import com.muhan.intelligence.ui.components.SectionLabel
@@ -138,6 +141,26 @@ fun SettingsScreen(
                     subtitle = "跟随系统壁纸配色（Android 12 及以上）",
                     checked = state.preferences.dynamicColor,
                     onCheckedChange = viewModel::setDynamicColor,
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // ---------------- Voice ----------------
+            SectionLabel("语音")
+            Spacer(Modifier.height(8.dp))
+            SettingsCard {
+                SwitchRow(
+                    icon = Icons.Outlined.VolumeUp,
+                    title = "语音播报",
+                    subtitle = "AI 回复完成后自动朗读，可随时在消息旁停止",
+                    checked = state.preferences.ttsEnabled,
+                    onCheckedChange = viewModel::setTtsEnabled,
+                )
+                Divider()
+                VoiceSelector(
+                    current = state.preferences.ttsVoice,
+                    onSelect = viewModel::setTtsVoice,
                 )
             }
 
@@ -502,6 +525,56 @@ private fun ThemeSelector(current: ThemeMode, onSelect: (ThemeMode) -> Unit) {
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun VoiceSelector(current: String, onSelect: (String) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.VolumeUp,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                text = "音色",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
+            )
+        }
+        Spacer(Modifier.height(11.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AppPreferences.TTS_VOICES.forEach { voice ->
+                val selected = current == voice
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(if (selected) scheme.primaryContainer else scheme.surfaceContainerHighest)
+                        .border(
+                            1.dp,
+                            if (selected) scheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                            RoundedCornerShape(11.dp),
+                        )
+                        .clickableNoIndication { onSelect(voice) }
+                        .padding(horizontal = 15.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = voice,
+                        style = MaterialTheme.typography.labelMedium,
                         color = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
                     )
                 }

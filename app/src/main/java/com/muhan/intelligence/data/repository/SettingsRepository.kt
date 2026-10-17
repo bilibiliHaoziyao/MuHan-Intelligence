@@ -25,6 +25,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setUxImprovement(enabled: Boolean) = store.setUxImprovement(enabled)
 
+    suspend fun setTtsEnabled(enabled: Boolean) = store.setTtsEnabled(enabled)
+
+    suspend fun setTtsVoice(voice: String) = store.setTtsVoice(voice)
+
     suspend fun updateGeneration(settings: GenerationSettings) = store.updateGeneration(settings)
 
     suspend fun resetGeneration() = store.resetGeneration()

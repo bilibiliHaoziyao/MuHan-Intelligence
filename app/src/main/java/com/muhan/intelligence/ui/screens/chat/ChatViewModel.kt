@@ -3,10 +3,14 @@ package com.muhan.intelligence.ui.screens.chat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.muhan.intelligence.audio.AudioPlayer
+import com.muhan.intelligence.audio.AudioRecorder
 import com.muhan.intelligence.data.local.AttachmentStore
+import com.muhan.intelligence.data.remote.AudioRemoteDataSource
 import com.muhan.intelligence.data.remote.RequestBodyFactory
 import com.muhan.intelligence.data.repository.ConversationRepository
 import com.muhan.intelligence.data.repository.ProviderRepository
+import com.muhan.intelligence.domain.model.AppPreferences
 import com.muhan.intelligence.domain.model.ChatMessage
 import com.muhan.intelligence.domain.model.Conversation
 import com.muhan.intelligence.domain.model.GenerationSettings
@@ -47,7 +51,17 @@ data class ChatUiState(
     /** Attachments picked but not yet sent. */
     val pendingAttachments: List<MessageAttachment> = emptyList(),
     val imageMode: Boolean = false,
+    /** 语音输入：是否正在录音（2.0.0 Beta）。 */
+    val isRecording: Boolean = false,
+    /** 录音时长（秒）。 */
+    val recordingSeconds: Int = 0,
+    /** 语音输入/识别的瞬态提示（如"正在识别…"）。 */
+    val voiceHint: String? = null,
+    /** 语音播报：当前正在播放（含合成中）的消息 id。 */
+    val speakingMessageId: String? = null,
 ) {
+    /** 是否正在合成/播放某条回复的语音。 */
+    val isSpeaking: Boolean get() = speakingMessageId != null
     /** The user cannot send while a stream is in flight or nothing is configured. */
     val canSend: Boolean
         get() = (input.isNotBlank() || pendingAttachments.isNotEmpty()) &&
@@ -80,6 +94,9 @@ class ChatViewModel @Inject constructor(
     private val settingsRepository: com.muhan.intelligence.data.repository.SettingsRepository,
     private val attachmentStore: AttachmentStore,
     private val logRepository: com.muhan.intelligence.data.local.LogRepository,
+    private val audioRemoteDataSource: AudioRemoteDataSource,
+    private val audioRecorder: AudioRecorder,
+    private val audioPlayer: AudioPlayer,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -102,6 +119,16 @@ class ChatViewModel @Inject constructor(
      */
     private val streamingMessage = MutableStateFlow<ChatMessage?>(null)
 
+    /** 语音播报偏好缓存（2.0.0 Beta），随 preferences 流刷新。 */
+    private var ttsEnabled = true
+    private var ttsVoice = AppPreferences.DEFAULT_TTS_VOICE
+
+    /** 录音计时协程。 */
+    private var recordTimerJob: Job? = null
+
+    /** 语音合成/播放协程。 */
+    private var speakJob: Job? = null
+
     init {
         observeSettings()
         observeActiveProvider()
@@ -112,6 +139,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.preferences.collect { prefs ->
                 // 1.0.0 起移除深度思考 / 联网搜索的逐次对话开关，统一关闭这两项能力。
+                ttsEnabled = prefs.ttsEnabled
+                ttsVoice = prefs.ttsVoice
                 _uiState.update { it.copy(generation = prefs.generation) }
             }
         }
@@ -187,6 +216,163 @@ class ChatViewModel @Inject constructor(
     // ------------------------------------------------------------------ toggles
 
     fun toggleImageMode() = _uiState.update { it.copy(imageMode = !it.imageMode) }
+
+    // ------------------------------------------------------------- 语音输入 (2.0.0 Beta)
+
+    /** 开始录音（调用前需已获得 RECORD_AUDIO 权限）。 */
+    fun startRecording() {
+        if (_uiState.value.isRecording) return
+        if (!audioRecorder.start()) {
+            _uiState.update { it.copy(voiceHint = "无法启动录音，请检查麦克风权限") }
+            clearVoiceHint()
+            return
+        }
+        _uiState.update { it.copy(isRecording = true, recordingSeconds = 0, voiceHint = null) }
+        recordTimerJob = viewModelScope.launch {
+            var s = 0
+            while (true) {
+                delay(1000)
+                s++
+                _uiState.update { it.copy(recordingSeconds = s) }
+            }
+        }
+    }
+
+    /** 停止录音并转文字。 */
+    fun stopRecordingAndTranscribe() {
+        if (!_uiState.value.isRecording) return
+        recordTimerJob?.cancel()
+        _uiState.update { it.copy(isRecording = false) }
+        val wav = audioRecorder.stop()
+        if (wav == null) {
+            _uiState.update { it.copy(voiceHint = "录音太短，请重试") }
+            clearVoiceHint()
+            return
+        }
+        _uiState.update { it.copy(voiceHint = "正在识别…") }
+        viewModelScope.launch {
+            runCatching { audioRemoteDataSource.transcribe(wav) }
+                .fold(
+                    onSuccess = { text ->
+                        val trimmed = text.trim()
+                        if (trimmed.isEmpty()) {
+                            _uiState.update { it.copy(voiceHint = "没有听清，请重试") }
+                        } else {
+                            val current = _uiState.value.input
+                            val merged = if (current.isBlank()) trimmed else "$current$trimmed"
+                            onInputChange(merged)
+                            _uiState.update { it.copy(voiceHint = null) }
+                        }
+                    },
+                    onFailure = { e ->
+                        _uiState.update { it.copy(voiceHint = e.message ?: "识别失败，请重试") }
+                    },
+                )
+            clearVoiceHint()
+        }
+    }
+
+    fun cancelRecording() {
+        recordTimerJob?.cancel()
+        audioRecorder.cancel()
+        _uiState.update { it.copy(isRecording = false, recordingSeconds = 0) }
+    }
+
+    private fun clearVoiceHint() {
+        viewModelScope.launch {
+            delay(2600)
+            _uiState.update { if (it.voiceHint != null) it.copy(voiceHint = null) else it }
+        }
+    }
+
+    // ------------------------------------------------------------- 语音输出 (2.0.0 Beta)
+
+    /** 播放/停止某条 AI 回复的语音。 */
+    fun speakMessage(messageId: String) {
+        val current = _uiState.value
+        // 再次点击同一消息 = 停止。
+        if (current.speakingMessageId == messageId) {
+            stopSpeaking()
+            return
+        }
+        stopSpeaking()
+
+        val message = current.messages.firstOrNull { it.id == messageId } ?: return
+        if (message.role != Role.ASSISTANT || message.content.isBlank()) return
+
+        val text = speechText(message.content)
+        if (text.isBlank()) return
+
+        speakJob?.cancel()
+        speakJob = viewModelScope.launch {
+            _uiState.update { it.copy(speakingMessageId = messageId) }
+            val wav = runCatching { audioRemoteDataSource.synthesize(text, ttsVoice) }
+                .getOrElse { e ->
+                    _uiState.update { it.copy(speakingMessageId = null) }
+                    _uiState.update { it.copy(errorBanner = e.message ?: "语音合成失败") }
+                    return@launch
+                }
+            val started = audioPlayer.play(wav) {
+                _uiState.update { it.copy(speakingMessageId = null) }
+            }
+            if (!started) {
+                _uiState.update { it.copy(speakingMessageId = null) }
+                _uiState.update { it.copy(errorBanner = "语音播放失败") }
+            }
+        }
+    }
+
+    fun stopSpeaking() {
+        speakJob?.cancel()
+        speakJob = null
+        audioPlayer.stop()
+        _uiState.update { it.copy(speakingMessageId = null) }
+    }
+
+    /** 生成自然完成后，按设置自动朗读（2.0.0 Beta）。 */
+    private fun maybeAutoSpeak(content: String, assistantId: String) {
+        if (!ttsEnabled) return
+        val text = speechText(content)
+        if (text.isBlank()) return
+        speakJob?.cancel()
+        speakJob = viewModelScope.launch {
+            _uiState.update { it.copy(speakingMessageId = assistantId) }
+            val wav = runCatching { audioRemoteDataSource.synthesize(text, ttsVoice) }
+                .getOrElse {
+                    _uiState.update { it.copy(speakingMessageId = null) }
+                    return@launch
+                }
+            audioPlayer.play(wav) {
+                _uiState.update { it.copy(speakingMessageId = null) }
+            }
+        }
+    }
+
+    /** 把 Markdown 回复洗成适合朗读的纯文本。 */
+    private fun speechText(markdown: String): String {
+        var t = markdown
+        // 代码块整体剔除（避免念代码）
+        t = t.replace(Regex("```[\\s\\S]*?```"), "（省略代码）")
+        // 行内代码
+        t = t.replace(Regex("`([^`]*)`"), "$1")
+        // 图片
+        t = t.replace(Regex("!\\[[^]]*]\\([^)]*\\)"), "")
+        // 链接
+        t = t.replace(Regex("\\[([^]]*)]\\([^)]*\\)"), "$1")
+        // 标题 / 引用 / 列表符号
+        t = t.replace(Regex("(?m)^#{1,6}\\s*"), "")
+        t = t.replace(Regex("(?m)^>\\s?"), "")
+        t = t.replace(Regex("(?m)^[-*+]\\s+"), "")
+        t = t.replace(Regex("(?m)^\\d+\\.\\s+"), "")
+        // 强调标记
+        t = t.replace(Regex("\\*\\*([^*]*)\\*\\*"), "$1")
+        t = t.replace(Regex("__([^_]*)__"), "$1")
+        t = t.replace(Regex("\\*([^*]*)\\*"), "$1")
+        t = t.replace(Regex("_([^_]*)_"), "$1")
+        // 压缩多余空行
+        t = t.replace(Regex("\\n{3,}"), "\n\n")
+        return t.trim()
+    }
 
     // -------------------------------------------------------------- attachments
 
@@ -270,6 +456,8 @@ class ChatViewModel @Inject constructor(
 
     fun send() {
         val state = _uiState.value
+        // 发送新消息时停止正在播放的语音，避免旧回复与新回复声音叠在一起。
+        stopSpeaking()
         if (state.imageMode) {
             sendImageRequest()
             return
@@ -542,6 +730,10 @@ class ChatViewModel @Inject constructor(
                         infoBanner = failureMessage?.let { m -> "生成中断：$m" },
                     )
                 }
+                // 2.0.0 Beta：自然完成后按设置自动朗读。
+                if (failureMessage == null) {
+                    maybeAutoSpeak(finalContent, assistantId)
+                }
             }
             generationJob = null
         }
@@ -619,6 +811,14 @@ class ChatViewModel @Inject constructor(
             }
         }
         return builder.toString()
+    }
+
+    override fun onCleared() {
+        recordTimerJob?.cancel()
+        speakJob?.cancel()
+        audioRecorder.cancel()
+        audioPlayer.release()
+        super.onCleared()
     }
 
     private companion object {
